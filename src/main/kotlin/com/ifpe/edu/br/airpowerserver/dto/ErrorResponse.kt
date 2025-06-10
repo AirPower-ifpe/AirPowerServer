@@ -5,4 +5,8 @@ data class ErrorResponse(
     val message: String,
     val errorCode: Int,
     val timestamp: String
-)
+) {
+    override fun toString(): String {
+        return "ErrorResponse(status=$status, message='$message', errorCode=$errorCode, timestamp='$timestamp')"
+    }
+}

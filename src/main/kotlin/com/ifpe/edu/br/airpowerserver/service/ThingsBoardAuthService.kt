@@ -1,8 +1,8 @@
 package com.ifpe.edu.br.airpowerserver.service
 
 import com.auth0.jwt.JWT
-import com.ifpe.edu.br.airpowerserver.dto.LoginRequest
-import com.ifpe.edu.br.airpowerserver.dto.ThingsboardLoginResponse
+import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
+import com.ifpe.edu.br.airpowerserver.dto.auth.ThingsBoardLoginResponse
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpEntity
@@ -19,9 +19,7 @@ class ThingsBoardAuthService(private val restTemplate: RestTemplate) {
 
     private val logger = LoggerFactory.getLogger(ThingsBoardAuthService::class.java)
 
-    /**
-     * Autentica no ThingsBoard via REST e retorna o ID do usuário em caso de sucesso.
-     */
+
     fun authenticate(loginRequest: LoginRequest): String {
         try {
             val loginUrl = "$thingsBoardApiUrl/api/auth/login"
@@ -29,7 +27,7 @@ class ThingsBoardAuthService(private val restTemplate: RestTemplate) {
                 contentType = MediaType.APPLICATION_JSON
             }
             val requestEntity = HttpEntity(loginRequest, headers)
-            val response = restTemplate.postForEntity(loginUrl, requestEntity, ThingsboardLoginResponse::class.java)
+            val response = restTemplate.postForEntity(loginUrl, requestEntity, ThingsBoardLoginResponse::class.java)
             if (response.statusCode.is2xxSuccessful) {
                 val tbToken = response.body?.token
                 val decodedJWT = JWT.decode(tbToken)

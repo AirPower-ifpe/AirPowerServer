@@ -2,8 +2,8 @@ package com.ifpe.edu.br.airpowerserver.controller
 
 import com.ifpe.edu.br.airpowerserver.config.Constants
 import com.ifpe.edu.br.airpowerserver.dto.ErrorResponse
-import com.ifpe.edu.br.airpowerserver.dto.LoginRequest
-import com.ifpe.edu.br.airpowerserver.dto.RefreshRequest
+import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
+import com.ifpe.edu.br.airpowerserver.dto.auth.RefreshRequest
 import com.ifpe.edu.br.airpowerserver.service.ThingsBoardAuthService
 import com.ifpe.edu.br.airpowerserver.service.TokenService
 import org.slf4j.LoggerFactory
@@ -28,11 +28,13 @@ class AuthController(
         @RequestBody loginRequest: LoginRequest
     ): ResponseEntity<Any> {
         try {
+            logger.info("Logging into user {}", loginRequest.username)
             val thingsBoardUserId = thingsBoardAuthService.authenticate(loginRequest)
             val tokens = tokenService.generateTokens(thingsBoardUserId)
             return ResponseEntity.ok(tokens)
         } catch (e: Exception) {
-            return ResponseEntity.status(500)
+            logger.error("Error while logging into user {}", loginRequest.username, e)
+            return ResponseEntity.status(401)
                 .body(
                     ErrorResponse(
                         status = 401,
@@ -46,11 +48,23 @@ class AuthController(
 
     @PostMapping("/token")
     fun refresh(@RequestBody refreshRequest: RefreshRequest): ResponseEntity<Any> {
-        val userId = tokenService.validateAndGetUserIdFromRefreshToken(refreshRequest.refreshToken)
-            ?: return ResponseEntity.status(401)
-                .body(mapOf("error" to "Refresh token inválido ou expirado"))
-        tokenService.invalidateRefreshToken(refreshRequest.refreshToken)
-        val newTokens = tokenService.generateTokens(userId)
-        return ResponseEntity.ok(newTokens)
+        try {
+            logger.info("Refresh token: {}", refreshRequest.refreshToken)
+            val userId = tokenService.validateAndGetUserIdFromRefreshToken(refreshRequest.refreshToken)
+            tokenService.invalidateRefreshToken(refreshRequest.refreshToken)
+            val newTokens = tokenService.generateTokens(userId)
+            return ResponseEntity.ok(newTokens)
+        } catch (e: Exception) {
+            logger.error("Error while refresh token", e)
+            return ResponseEntity.status(401)
+                .body(
+                    ErrorResponse(
+                        status = 401,
+                        message = "message: ${e.message}",
+                        errorCode = Constants.ErrorCodes.TOKEN_EXPIRED,
+                        timestamp = Instant.now().toString()
+                    )
+                )
+        }
     }
 }

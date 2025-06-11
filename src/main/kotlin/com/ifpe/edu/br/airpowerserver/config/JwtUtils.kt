@@ -1,12 +1,13 @@
-package com.ifpe.edu.br.airpowerserver.security
+package com.ifpe.edu.br.airpowerserver.config
 
-import io.jsonwebtoken.*
+import io.jsonwebtoken.Jwts
+import io.jsonwebtoken.SignatureAlgorithm
 import io.jsonwebtoken.security.Keys
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
-import java.util.*
-import javax.crypto.SecretKey
 import java.util.Base64
+import java.util.Date
+import javax.crypto.SecretKey
 
 @Component
 class JwtUtils {

@@ -31,6 +31,7 @@ class ThingsBoardAuthService(private val restTemplate: RestTemplate) {
             if (response.statusCode.is2xxSuccessful) {
                 val tbToken = response.body?.token
                 val decodedJWT = JWT.decode(tbToken)
+                logger.info("Authentication successful on thingsboard: {}", decodedJWT)
                 return decodedJWT.getClaim("userId").asString()
             } else {
                 throw IllegalStateException("Authentication failed: ${response.statusCode}")

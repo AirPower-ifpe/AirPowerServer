@@ -14,7 +14,9 @@ import java.time.temporal.ChronoUnit
 import java.util.*
 
 @Service
-class DeviceTelemetryService(private val jdbcTemplate: JdbcTemplate) {
+class DeviceTelemetryService(
+    private val jdbcTemplate: JdbcTemplate
+) {
 
     private val logger = LoggerFactory.getLogger(DeviceTelemetryService::class.java)
 

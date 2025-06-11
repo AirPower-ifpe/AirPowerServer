@@ -1,5 +1,6 @@
-package com.ifpe.edu.br.airpowerserver.security
+package com.ifpe.edu.br.airpowerserver.config
 
+import com.ifpe.edu.br.airpowerserver.config.JwtUtils
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -10,7 +11,6 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.core.userdetails.UserDetailsService
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource
 import org.springframework.web.filter.OncePerRequestFilter
-
 
 class AuthTokenFilter(
     private val jwtUtils: JwtUtils,

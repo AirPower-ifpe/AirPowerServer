@@ -1,8 +1,8 @@
 package com.ifpe.edu.br.airpowerserver.config
 
 
-import com.ifpe.edu.br.airpowerserver.security.AuthTokenFilter
-import com.ifpe.edu.br.airpowerserver.security.JwtUtils
+import com.ifpe.edu.br.airpowerserver.config.AuthTokenFilter
+import com.ifpe.edu.br.airpowerserver.config.JwtUtils
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.config.annotation.web.builders.HttpSecurity

@@ -1,4 +1,4 @@
-package com.ifpe.edu.br.airpowerserver.security
+package com.ifpe.edu.br.airpowerserver.config
 
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse

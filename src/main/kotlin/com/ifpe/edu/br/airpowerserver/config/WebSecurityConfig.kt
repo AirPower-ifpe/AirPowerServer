@@ -1,8 +1,7 @@
 package com.ifpe.edu.br.airpowerserver.config
 
 
-import com.ifpe.edu.br.airpowerserver.config.AuthTokenFilter
-import com.ifpe.edu.br.airpowerserver.config.JwtUtils
+import com.ifpe.edu.br.airpowerserver.service.TokenService
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
@@ -15,13 +14,13 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableWebSecurity
 class WebSecurityConfig(
-    private val jwtUtils: JwtUtils,
+    private val tokenService: TokenService,
     private val userDetailsService: UserDetailsService
 ) {
 
     @Bean
     fun authenticationJwtTokenFilter(): AuthTokenFilter {
-        return AuthTokenFilter(jwtUtils, userDetailsService)
+        return AuthTokenFilter(tokenService, userDetailsService)
     }
 
     @Bean

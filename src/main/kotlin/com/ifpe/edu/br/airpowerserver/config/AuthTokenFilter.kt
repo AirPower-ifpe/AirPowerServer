@@ -1,6 +1,6 @@
 package com.ifpe.edu.br.airpowerserver.config
 
-import com.ifpe.edu.br.airpowerserver.config.JwtUtils
+import com.ifpe.edu.br.airpowerserver.service.TokenService
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -13,7 +13,7 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.web.filter.OncePerRequestFilter
 
 class AuthTokenFilter(
-    private val jwtUtils: JwtUtils,
+    private val tokenService: TokenService,
     private val userDetailsService: UserDetailsService
 ) : OncePerRequestFilter() {
 
@@ -26,12 +26,12 @@ class AuthTokenFilter(
     ) {
         try {
             val jwt = parseJwt(request)
-            if (jwt != null && jwtUtils.validateJwtToken(jwt)) {
-                val username = jwtUtils.getUserNameFromJwtToken(jwt)
-                val userDetails = userDetailsService.loadUserByUsername(username)
-                val authentication = UsernamePasswordAuthenticationToken(userDetails, null, userDetails.authorities)
-                authentication.details = WebAuthenticationDetailsSource().buildDetails(request)
-                SecurityContextHolder.getContext().authentication = authentication
+            if (jwt != null && tokenService.validateJwtToken(jwt)) {
+//                val userId = tokenService.validateAndGetUserIdFromRefreshToken(jwt)
+//                val userDetails = userDetailsService.loadUserByUsername(userId)
+//                val authentication = UsernamePasswordAuthenticationToken(userDetails, null, userDetails.authorities)
+//                authentication.details = WebAuthenticationDetailsSource().buildDetails(request)
+//                SecurityContextHolder.getContext().authentication = authentication
             }
         } catch (e: Exception) {
             log.error("Cannot set user authentication", e)

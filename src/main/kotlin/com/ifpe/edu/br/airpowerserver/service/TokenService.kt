@@ -2,15 +2,17 @@ package com.ifpe.edu.br.airpowerserver.service
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.ifpe.edu.br.airpowerserver.controller.AuthController
 import com.ifpe.edu.br.airpowerserver.dto.auth.TokenResponse
 import com.ifpe.edu.br.airpowerserver.entity.airpower.RefreshToken
 import com.ifpe.edu.br.airpowerserver.repository.airpower.AuthRepository
+import io.jsonwebtoken.Jwts
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.Date
-import java.util.UUID
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -18,6 +20,9 @@ import java.util.concurrent.TimeUnit
 class TokenService(
     private val refreshTokenRepository: AuthRepository
 ) {
+
+    private val logger = LoggerFactory.getLogger(TokenService::class.java)
+
 
     @Value("\${airpower.jwt.secret}")
     private lateinit var airPowerJWTSecret: String
@@ -83,7 +88,21 @@ class TokenService(
         }
     }
 
+    fun validateJwtToken(authToken: String): Boolean {
+        return try {
+            Jwts.parserBuilder().setSigningKey(airPowerJWTSecret).build().parseClaimsJws(authToken)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun invalidateRefreshToken(token: String) {
-        validRefreshTokens.remove(token)
+        try {
+            val token = refreshTokenRepository.findByToken(token)
+            refreshTokenRepository.delete(token)
+        } catch (e: Exception) {
+            logger.error("Refresh token nao encontrado. ${e.message}")
+        }
     }
 }

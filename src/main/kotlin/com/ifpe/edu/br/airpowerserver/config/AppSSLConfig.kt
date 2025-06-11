@@ -1,22 +1,17 @@
 package com.ifpe.edu.br.airpowerserver.config
 
-import com.ifpe.edu.br.airpowerserver.service.DeviceTelemetryService
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.web.client.RestTemplate
 import java.net.HttpURLConnection
-import javax.net.ssl.HostnameVerifier
-import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
+import javax.net.ssl.*
 
 @Configuration
-class AppConfig {
+class AppSSLConfig {
 
-    private val logger = LoggerFactory.getLogger(AppConfig::class.java)
+    private val logger = LoggerFactory.getLogger(AppSSLConfig::class.java)
 
     @Bean
     fun restTemplate(): RestTemplate {

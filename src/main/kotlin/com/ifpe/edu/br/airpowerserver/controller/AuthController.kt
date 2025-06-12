@@ -1,9 +1,12 @@
 package com.ifpe.edu.br.airpowerserver.controller
 
+import com.auth0.jwt.JWT
 import com.ifpe.edu.br.airpowerserver.config.Constants
 import com.ifpe.edu.br.airpowerserver.dto.ErrorResponse
 import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.RefreshRequest
+import com.ifpe.edu.br.airpowerserver.entity.airpower.PersistToken
+import com.ifpe.edu.br.airpowerserver.repository.airpower.TokenRepository
 import com.ifpe.edu.br.airpowerserver.service.ThingsBoardAuthService
 import com.ifpe.edu.br.airpowerserver.service.TokenService
 import org.slf4j.LoggerFactory
@@ -18,7 +21,8 @@ import java.time.Instant
 @RequestMapping("/test/api/v1/user/auth")
 class AuthController(
     private val thingsBoardAuthService: ThingsBoardAuthService,
-    private val tokenService: TokenService
+    private val tokenService: TokenService,
+    private val tokenRepository: TokenRepository
 ) {
 
     private val logger = LoggerFactory.getLogger(AuthController::class.java)
@@ -29,9 +33,47 @@ class AuthController(
     ): ResponseEntity<Any> {
         try {
             logger.info("Logging into user {}", loginRequest.username)
-            val thingsBoardUserId = thingsBoardAuthService.authenticate(loginRequest)
-            val tokens = tokenService.generateTokens(thingsBoardUserId)
-            return ResponseEntity.ok(tokens)
+            val thingsBoardToken = thingsBoardAuthService.authenticate(loginRequest)
+            val decodedThingsBoardJWT = JWT.decode(thingsBoardToken.token)
+            val thingsBoardUserId = decodedThingsBoardJWT.getClaim("userId").asString()
+            logger.info("user Id: {}", thingsBoardUserId) // todo delete it
+
+            var thingsBoardPersistedToken =
+                tokenRepository.findByUserIdAndScope(thingsBoardUserId, Constants.Scope.THINGS_BOARD)
+
+            if (thingsBoardPersistedToken != null) {
+                thingsBoardPersistedToken.jwt = thingsBoardToken.token
+                thingsBoardPersistedToken.refreshToken = thingsBoardToken.refreshToken
+            } else {
+                thingsBoardPersistedToken =
+                    PersistToken(
+                        jwt = thingsBoardToken.token,
+                        refreshToken = thingsBoardToken.refreshToken,
+                        userId = thingsBoardUserId,
+                        scope = Constants.Scope.THINGS_BOARD
+                    )
+            }
+
+            var airPowerPersistToken =
+                tokenRepository.findByUserIdAndScope(thingsBoardUserId, Constants.Scope.AIR_POWER)
+            val generateAirPowerToken = tokenService.generateAirPowerToken(thingsBoardUserId)
+
+            if (airPowerPersistToken != null) {
+                airPowerPersistToken.jwt = generateAirPowerToken.accessToken
+                airPowerPersistToken.refreshToken = generateAirPowerToken.refreshToken
+            } else {
+                airPowerPersistToken =
+                    PersistToken(
+                        jwt = generateAirPowerToken.accessToken,
+                        refreshToken = generateAirPowerToken.refreshToken,
+                        userId = thingsBoardUserId,
+                        scope = Constants.Scope.AIR_POWER
+                    )
+
+            }
+            tokenRepository.save(airPowerPersistToken)
+            tokenRepository.save(thingsBoardPersistedToken)
+            return ResponseEntity.ok(generateAirPowerToken)
         } catch (e: Exception) {
             logger.error("Error while logging into user {}", loginRequest.username, e)
             return ResponseEntity.status(401)
@@ -50,10 +92,13 @@ class AuthController(
     fun refresh(@RequestBody refreshRequest: RefreshRequest): ResponseEntity<Any> {
         try {
             logger.info("Refresh token: {}", refreshRequest.refreshToken)
-            val userId = tokenService.validateAndGetUserIdFromRefreshToken(refreshRequest.refreshToken)
-            tokenService.invalidateRefreshToken(refreshRequest.refreshToken)
-            val newTokens = tokenService.generateTokens(userId)
-            return ResponseEntity.ok(newTokens)
+            val tbuserId = thingsBoardAuthService.updateSession(refreshRequest)
+
+
+            //val userId = tokenService.validateAndGetUserIdFromRefreshToken(refreshRequest.refreshToken)
+//            tokenService.invalidateRefreshToken(refreshRequest.refreshToken)
+//            val newTokens = tokenService.generateAirPowerToken(userId)
+            return ResponseEntity.ok("newTokens")
         } catch (e: Exception) {
             logger.error("Error while refresh token", e)
             return ResponseEntity.status(401)

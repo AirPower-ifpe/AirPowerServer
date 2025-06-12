@@ -2,23 +2,20 @@ package com.ifpe.edu.br.airpowerserver.service
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.ifpe.edu.br.airpowerserver.controller.AuthController
 import com.ifpe.edu.br.airpowerserver.dto.auth.TokenResponse
-import com.ifpe.edu.br.airpowerserver.entity.airpower.RefreshToken
-import com.ifpe.edu.br.airpowerserver.repository.airpower.AuthRepository
+import com.ifpe.edu.br.airpowerserver.repository.airpower.TokenRepository
 import io.jsonwebtoken.Jwts
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 @Service
 class TokenService(
-    private val refreshTokenRepository: AuthRepository
+    private val tokenRepository: TokenRepository
 ) {
 
     private val logger = LoggerFactory.getLogger(TokenService::class.java)
@@ -38,7 +35,7 @@ class TokenService(
     // Armazenamento em memória. Para produção, considere usar Redis.
     private val validRefreshTokens = ConcurrentHashMap<String, String>()
 
-    fun generateTokens(userId: String): TokenResponse {
+    fun generateAirPowerToken(userId: String): TokenResponse {
         val algorithm = Algorithm.HMAC256(airPowerJWTSecret)
 
         val accessToken = JWT.create()
@@ -63,25 +60,17 @@ class TokenService(
                 )
             )
             .sign(algorithm)
-
-        val refreshTokenEntity = RefreshToken(
-            token = refreshToken,
-            userId = userId,
-            expiryDate = Instant.now().plus(airPowerRefreshTokenExpirationMinutes.toLong(), ChronoUnit.DAYS)
-        )
-
-        refreshTokenRepository.save(refreshTokenEntity)
         return TokenResponse(accessToken, refreshToken)
     }
 
     fun validateAndGetUserIdFromRefreshToken(token: String): String {
         try {
-            val refreshTokenEntity = refreshTokenRepository.findByToken(token)
-            if (refreshTokenEntity.expiryDate.isBefore(Instant.now())) {
-                refreshTokenRepository.delete(refreshTokenEntity)
-                throw IllegalStateException("Refresh token expirado.")
-            }
-            return refreshTokenEntity.userId
+//            val refreshToken = tokenRepository.findByJwt(token)
+//            if (refreshToken.expiryDate.isBefore(Instant.now())) {
+//                tokenRepository.delete(refreshToken)
+//                throw IllegalStateException("Refresh token expirado.")
+//            }
+            return "refreshToken.userId"
         } catch (e: Exception) {
             validRefreshTokens.remove(token)
             throw IllegalStateException("${e.message}")
@@ -99,8 +88,8 @@ class TokenService(
 
     fun invalidateRefreshToken(token: String) {
         try {
-            val token = refreshTokenRepository.findByToken(token)
-            refreshTokenRepository.delete(token)
+            //val token = tokenRepository.findByToken(token)
+            //tokenRepository.delete(token)
         } catch (e: Exception) {
             logger.error("Refresh token nao encontrado. ${e.message}")
         }

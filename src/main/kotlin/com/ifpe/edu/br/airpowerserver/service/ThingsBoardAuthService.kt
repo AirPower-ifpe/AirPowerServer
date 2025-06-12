@@ -1,6 +1,5 @@
 package com.ifpe.edu.br.airpowerserver.service
 
-import com.auth0.jwt.JWT
 import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.RefreshRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.ThingsBoardLoginResponse
@@ -20,52 +19,52 @@ class ThingsBoardAuthService(private val restTemplate: RestTemplate) {
 
     private val logger = LoggerFactory.getLogger(ThingsBoardAuthService::class.java)
 
-
     fun authenticate(
         loginRequest: LoginRequest
     ): ThingsBoardLoginResponse {
         try {
+            logger.info("authenticate: {}", loginRequest)
             val loginUrl = "$thingsBoardApiUrl/api/auth/login"
-            val headers = HttpHeaders().apply {
-                contentType = MediaType.APPLICATION_JSON
-            }
-            val requestEntity = HttpEntity(loginRequest, headers)
-            val response = restTemplate.postForEntity(loginUrl, requestEntity, ThingsBoardLoginResponse::class.java)
-            if (response.statusCode.is2xxSuccessful) {
-                if (response.body == null) {
-                    throw IllegalStateException("ThingsBoardLoginResponse was null")
-                } else {
-                    return response.body!!
-                }
-            } else {
-                throw IllegalStateException("Authentication failed: ${response.statusCode}")
-            }
+            val requestEntity = HttpEntity(loginRequest, getHeader())
+            return performRequest(loginUrl, requestEntity)
         } catch (e: Exception) {
             throw IllegalStateException("Authentication failed: ${e.message}")
         }
     }
 
-    fun updateSession(refreshToken: RefreshRequest): String {
+    fun updateSession(
+        refreshToken: RefreshRequest
+    ): ThingsBoardLoginResponse {
         try {
+            logger.info("updateSession: {}", refreshToken)
             val refreshTokenUrl = "$thingsBoardApiUrl/api/auth/token"
-            val headers = HttpHeaders().apply {
-                contentType = MediaType.APPLICATION_JSON
-            }
-            val requestEntity = HttpEntity(refreshToken, headers)
-            val response =
-                restTemplate.postForEntity(refreshTokenUrl, requestEntity, ThingsBoardLoginResponse::class.java)
-            if (response.statusCode.is2xxSuccessful) {
-                val tbToken = response.body?.token
-                val newRefreshToken = response.body?.refreshToken
-                val decodedJWT = JWT.decode(tbToken)
-                logger.info("Refreshed tbToken: {}", tbToken) // todo remove it
-                logger.info("Refreshed refreshToken: {}", newRefreshToken) // todo remove it
-                return decodedJWT.getClaim("userId").asString()
-            } else {
-                throw IllegalStateException("Authentication failed: ${response.statusCode}")
-            }
+            val requestEntity = HttpEntity(refreshToken, getHeader())
+            return performRequest(refreshTokenUrl, requestEntity)
         } catch (e: Exception) {
             throw IllegalStateException("Authentication failed: ${e.message}")
+        }
+    }
+
+    fun <T> performRequest(
+        url: String,
+        requestEntity: HttpEntity<T>
+    ): ThingsBoardLoginResponse {
+        val response =
+            restTemplate.postForEntity(url, requestEntity, ThingsBoardLoginResponse::class.java)
+        if (response.statusCode.is2xxSuccessful) {
+            if (response.body == null) {
+                throw IllegalStateException("ThingsBoardLoginResponse was null")
+            } else {
+                return response.body!!
+            }
+        } else {
+            throw IllegalStateException("Authentication failed: ${response.statusCode}")
+        }
+    }
+
+    fun getHeader(): HttpHeaders {
+        return HttpHeaders().apply {
+            contentType = MediaType.APPLICATION_JSON
         }
     }
 }

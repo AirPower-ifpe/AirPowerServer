@@ -1,11 +1,12 @@
 package com.ifpe.edu.br.airpowerserver.dto.auth
 
 data class TokenResponse(
-    val accessToken: String,
-    val refreshToken: String
+    val token: String,
+    val refreshToken: String,
+    val scope : String,
 )
 {
     override fun toString(): String {
-        return "TokenResponse(accessToken='$accessToken', refreshToken='$refreshToken')"
+        return "TokenResponse(token='$token', refreshToken='$refreshToken', scope='$scope')"
     }
 }

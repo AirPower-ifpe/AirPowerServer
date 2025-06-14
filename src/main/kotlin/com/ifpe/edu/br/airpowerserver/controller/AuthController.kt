@@ -1,15 +1,20 @@
 package com.ifpe.edu.br.airpowerserver.controller
 
 import com.auth0.jwt.JWT
+import com.ifpe.edu.br.airpowerserver.config.AirPowerUserDetailsImpl
 import com.ifpe.edu.br.airpowerserver.config.Constants
+import com.ifpe.edu.br.airpowerserver.config.RoleName
 import com.ifpe.edu.br.airpowerserver.dto.ErrorResponse
 import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.RefreshRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.ThingsBoardLoginResponse
+import com.ifpe.edu.br.airpowerserver.entity.airpower.AirPowerUser
 import com.ifpe.edu.br.airpowerserver.entity.airpower.PersistToken
+import com.ifpe.edu.br.airpowerserver.entity.airpower.Role
+import com.ifpe.edu.br.airpowerserver.repository.airpower.AirPowerUserRepository
 import com.ifpe.edu.br.airpowerserver.repository.airpower.TokenRepository
 import com.ifpe.edu.br.airpowerserver.service.ThingsBoardAuthService
-import com.ifpe.edu.br.airpowerserver.service.TokenService
+import com.ifpe.edu.br.airpowerserver.service.AirPowerTokenService
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
@@ -17,13 +22,15 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import java.time.Instant
+import java.util.UUID
 
 @RestController
-@RequestMapping("/test/api/v1/user/auth")
+@RequestMapping("/api/v1/auth")
 class AuthController(
     private val thingsBoardAuthService: ThingsBoardAuthService,
-    private val tokenService: TokenService,
-    private val tokenRepository: TokenRepository
+    private val tokenService: AirPowerTokenService,
+    private val tokenRepository: TokenRepository,
+    private val airPowerUserRepository: AirPowerUserRepository,
 ) {
 
     private val logger = LoggerFactory.getLogger(AuthController::class.java)
@@ -35,6 +42,7 @@ class AuthController(
         try {
             logger.info("Logging into user {}", loginRequest.username)
             val thingsBoardIncomeToken = thingsBoardAuthService.authenticate(loginRequest)
+            logger.info("thingsBoardIncomeToken {}", thingsBoardIncomeToken)
             val thingsBoardUserId = getUserIdFromToken(thingsBoardIncomeToken)
 
             var thingsBoardPersistedToken =
@@ -53,17 +61,23 @@ class AuthController(
                     )
             }
 
+            val airPowerUser = AirPowerUser()
+            airPowerUser.id = thingsBoardUserId
+            airPowerUser.email = loginRequest.username
+            airPowerUser.password = loginRequest.password
+            airPowerUser.roles = extractRolesFromJwt(thingsBoardIncomeToken)
+
             var airPowerPersistToken =
                 tokenRepository.findByUserIdAndScope(thingsBoardUserId, Constants.Scope.AIR_POWER)
-            val generateAirPowerToken = tokenService.generateAirPowerToken(thingsBoardUserId)
+            val generateAirPowerToken = tokenService.generateAirPowerToken(AirPowerUserDetailsImpl(airPowerUser))
 
             if (airPowerPersistToken != null) {
-                airPowerPersistToken.jwt = generateAirPowerToken.accessToken
+                airPowerPersistToken.jwt = generateAirPowerToken.token
                 airPowerPersistToken.refreshToken = generateAirPowerToken.refreshToken
             } else {
                 airPowerPersistToken =
                     PersistToken(
-                        jwt = generateAirPowerToken.accessToken,
+                        jwt = generateAirPowerToken.token,
                         refreshToken = generateAirPowerToken.refreshToken,
                         userId = thingsBoardUserId,
                         scope = Constants.Scope.AIR_POWER
@@ -72,6 +86,7 @@ class AuthController(
             }
             tokenRepository.save(airPowerPersistToken)
             tokenRepository.save(thingsBoardPersistedToken)
+            airPowerUserRepository.save(airPowerUser)
             return ResponseEntity.ok(generateAirPowerToken)
         } catch (e: Exception) {
             logger.error("Error while logging into user {}", loginRequest.username, e)
@@ -116,8 +131,10 @@ class AuthController(
             storedThingsBoardToken.refreshToken = thingsBoardRefreshedToken.refreshToken
             tokenRepository.save(storedThingsBoardToken)
 
-            val refreshedAirPowerToken = tokenService.generateAirPowerToken(storedThingsBoardToken.userId)
-            storedAirPowerToken.jwt = refreshedAirPowerToken.accessToken
+            val storedAirPowerUser = airPowerUserRepository.findById(storedAirPowerToken.userId)
+
+            val refreshedAirPowerToken = tokenService.generateAirPowerToken(AirPowerUserDetailsImpl(storedAirPowerUser.get()))
+            storedAirPowerToken.jwt = refreshedAirPowerToken.token
             storedAirPowerToken.refreshToken = refreshedAirPowerToken.refreshToken
             tokenRepository.save(storedAirPowerToken)
             return ResponseEntity.ok(refreshedAirPowerToken)
@@ -131,9 +148,22 @@ class AuthController(
         }
     }
 
-    fun getUserIdFromToken(incomingToken: ThingsBoardLoginResponse): String {
+    fun getUserIdFromToken(incomingToken: ThingsBoardLoginResponse): UUID {
         val decodedThingsBoardJWT = JWT.decode(incomingToken.token)
-        return decodedThingsBoardJWT.getClaim("userId").asString()
+        return UUID.fromString(decodedThingsBoardJWT.getClaim("userId").asString())
+    }
+
+    fun extractRolesFromJwt(incomingToken: ThingsBoardLoginResponse): MutableList<Role> {
+        val decodedJWT = JWT.decode(incomingToken.token)
+        val scopes = decodedJWT.getClaim("scopes").asList(String::class.java) ?: return mutableListOf()
+        return scopes.mapNotNull { scope ->
+            runCatching {
+                val roleName = RoleName.valueOf(scope)
+                Role().apply {
+                    name = roleName
+                }
+            }.getOrNull()
+        }.toMutableList()
     }
 
     private fun buildErrorResponse(

@@ -17,7 +17,7 @@ class PersistToken(
     var refreshToken: String,
 
     @Column(nullable = false)
-    var userId: String,
+    var userId: UUID,
 
     @Column(nullable = false)
     var scope: Int

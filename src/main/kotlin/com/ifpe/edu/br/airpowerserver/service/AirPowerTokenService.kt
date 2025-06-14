@@ -2,23 +2,23 @@ package com.ifpe.edu.br.airpowerserver.service
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.auth0.jwt.exceptions.JWTVerificationException
+import com.ifpe.edu.br.airpowerserver.config.AirPowerUserDetailsImpl
 import com.ifpe.edu.br.airpowerserver.dto.auth.TokenResponse
 import com.ifpe.edu.br.airpowerserver.repository.airpower.TokenRepository
-import io.jsonwebtoken.Jwts
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 @Service
-class TokenService(
+class AirPowerTokenService(
     private val tokenRepository: TokenRepository
 ) {
 
-    private val logger = LoggerFactory.getLogger(TokenService::class.java)
+    private val logger = LoggerFactory.getLogger(AirPowerTokenService::class.java)
 
 
     @Value("\${airpower.jwt.secret}")
@@ -32,15 +32,13 @@ class TokenService(
 
     private val issuer = "AirPowerServer"
 
-    // Armazenamento em memória. Para produção, considere usar Redis.
-    private val validRefreshTokens = ConcurrentHashMap<String, String>()
 
-    fun generateAirPowerToken(userId: String): TokenResponse {
+    fun generateAirPowerToken(userDetailsImpl: AirPowerUserDetailsImpl): TokenResponse {
         val algorithm = Algorithm.HMAC256(airPowerJWTSecret)
-
         val accessToken = JWT.create()
             .withIssuer(issuer)
-            .withClaim("userId", userId)
+            .withIssuedAt(Date.from(Instant.now()))
+            .withSubject(userDetailsImpl.username)
             .withExpiresAt(
                 Date(
                     System.currentTimeMillis()
@@ -51,7 +49,8 @@ class TokenService(
 
         val refreshToken = JWT.create()
             .withIssuer(issuer)
-            .withClaim("userId", userId)
+            .withSubject(userDetailsImpl.username)
+            .withIssuedAt(Date.from(Instant.now()))
             .withJWTId(UUID.randomUUID().toString())
             .withExpiresAt(
                 Date(
@@ -60,38 +59,19 @@ class TokenService(
                 )
             )
             .sign(algorithm)
-        return TokenResponse(accessToken, refreshToken)
+        return TokenResponse(accessToken, refreshToken, userDetailsImpl.authorities.toString())
     }
 
-    fun validateAndGetUserIdFromRefreshToken(token: String): String {
+    fun getSubjectFromToken(token: String): String {
         try {
-//            val refreshToken = tokenRepository.findByJwt(token)
-//            if (refreshToken.expiryDate.isBefore(Instant.now())) {
-//                tokenRepository.delete(refreshToken)
-//                throw IllegalStateException("Refresh token expirado.")
-//            }
-            return "refreshToken.userId"
-        } catch (e: Exception) {
-            validRefreshTokens.remove(token)
-            throw IllegalStateException("${e.message}")
-        }
-    }
-
-    fun validateJwtToken(authToken: String): Boolean {
-        return try {
-            Jwts.parserBuilder().setSigningKey(airPowerJWTSecret).build().parseClaimsJws(authToken)
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun invalidateRefreshToken(token: String) {
-        try {
-            //val token = tokenRepository.findByToken(token)
-            //tokenRepository.delete(token)
-        } catch (e: Exception) {
-            logger.error("Refresh token nao encontrado. ${e.message}")
+            val algorithm = Algorithm.HMAC256(airPowerJWTSecret)
+            return JWT.require(algorithm)
+                .withIssuer(issuer)
+                .build()
+                .verify(token)
+                .subject
+        } catch (ex: Exception) {
+            throw JWTVerificationException("token is not valid", ex)
         }
     }
 }

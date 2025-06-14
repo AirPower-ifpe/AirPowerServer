@@ -9,7 +9,7 @@ import java.util.UUID
 @Repository
 interface TokenRepository : JpaRepository<PersistToken, UUID> {
     fun save(token: PersistToken)
-    fun findByUserIdAndScope(userId: String, scope: Int): PersistToken?
+    fun findByUserIdAndScope(userId: UUID, scope: Int): PersistToken?
     fun findByRefreshToken(refreshToken: String): PersistToken?
-    fun findByJwt(jwt: String): PersistToken
+    fun findByJwt(jwt: String): PersistToken?
 }

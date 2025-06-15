@@ -9,6 +9,8 @@ plugins {
 group = "com.ifpe.edu.br"
 version = "0.0.1-SNAPSHOT"
 val jjwtVersion = "0.11.5"
+val ktorVersion = "2.0.0"
+val logbackVersion = "1.5.13"
 
 java {
     toolchain {
@@ -45,6 +47,25 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.springframework.security:spring-security-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // Suporte a Coroutines do Kotlin no Spring
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
+
+    // Para negociação de conteúdo (JSON)
+    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+
+    // Cliente HTTP para chamar o ThingsBoard
+    implementation("io.ktor:ktor-client-core:$ktorVersion")
+    implementation("io.ktor:ktor-client-cio:$ktorVersion")
+    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-client-serialization:$ktorVersion")
+
+    // Biblioteca para JWT
+    implementation("com.auth0:java-jwt:4.4.0")
+
+    // Logback para logging
+    implementation("ch.qos.logback:logback-classic:$logbackVersion")
 }
 
 kotlin {

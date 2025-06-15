@@ -6,16 +6,24 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@RequestMapping("/test/api/v1")
+@RequestMapping("/test/api")
 class TestController {
 
-    @GetMapping("/will")
+    @GetMapping("/v1/test")
     fun getPublicData(): ResponseEntity<Map<String, String>> {
         val data = mapOf(
-            "message" to "Este é um dado público do AirPowerServer.",
+            "message" to "this is a public data from AirPowerServer.",
             "timestamp" to java.time.LocalDateTime.now().toString()
         )
         return ResponseEntity.ok(data)
     }
 
+    @GetMapping("/v2/auth")
+    fun getAuthData(): ResponseEntity<Map<String, String>> {
+        val data = mapOf(
+            "message" to "this is a PRIVATE data from AirPowerServer.",
+            "timestamp" to java.time.LocalDateTime.now().toString()
+        )
+        return ResponseEntity.ok(data)
+    }
 }

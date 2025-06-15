@@ -41,6 +41,7 @@ class ThingsBoardAuthService(private val restTemplate: RestTemplate) {
             val requestEntity = HttpEntity(refreshToken, getHeader())
             return performRequest(refreshTokenUrl, requestEntity)
         } catch (e: Exception) {
+            logger.error("Authentication failed: ${e.message}")
             throw IllegalStateException("Authentication failed: ${e.message}")
         }
     }

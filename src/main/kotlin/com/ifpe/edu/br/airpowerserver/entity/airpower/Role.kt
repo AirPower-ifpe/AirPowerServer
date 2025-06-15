@@ -20,4 +20,8 @@ class Role() {
 
     @Enumerated(EnumType.STRING)
     var name: RoleName? = null
+
+    override fun toString(): String {
+        return "Role(id=$id, name=$name)"
+    }
 }

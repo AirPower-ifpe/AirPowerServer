@@ -22,11 +22,15 @@ class AirPowerUser {
 
     var password: String? = null
 
-    @ManyToMany(fetch = FetchType.EAGER, cascade = [CascadeType.PERSIST])
+    @ManyToMany(fetch = FetchType.EAGER, cascade = [CascadeType.ALL])
     @JoinTable(
         name = "users_roles",
         joinColumns = [JoinColumn(name = "user_id")],
         inverseJoinColumns = [JoinColumn(name = "role_id")]
     )
     var roles: MutableList<Role>? = null
+
+    override fun toString(): String {
+        return "AirPowerUser(id=$id, email=$email, password=$password, roles=$roles)"
+    }
 }

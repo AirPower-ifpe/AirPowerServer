@@ -1,6 +1,7 @@
 package com.ifpe.edu.br.airpowerserver.controller
 
 import com.auth0.jwt.JWT
+import com.ifpe.edu.br.airpowerserver.config.AESUtils
 import com.ifpe.edu.br.airpowerserver.config.AirPowerUserDetailsImpl
 import com.ifpe.edu.br.airpowerserver.config.Constants
 import com.ifpe.edu.br.airpowerserver.config.RoleName
@@ -19,7 +20,6 @@ import com.ifpe.edu.br.airpowerserver.service.ThingsBoardAuthService
 import jakarta.transaction.Transactional
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -34,7 +34,8 @@ class AuthController(
     private val tokenService: AirPowerTokenService,
     private val tokenRepository: TokenRepository,
     private val airPowerUserRepository: AirPowerUserRepository,
-    private val roleRepository: RoleRepository
+    private val roleRepository: RoleRepository,
+    private val aesUtils: AESUtils
 ) {
 
     private val logger = LoggerFactory.getLogger(AuthController::class.java)
@@ -52,7 +53,7 @@ class AuthController(
             val airPowerUser = airPowerUserRepository.findById(thingsBoardUserId).orElse(AirPowerUser()).apply {
                 id = thingsBoardUserId
                 email = loginRequest.username
-                password = encryptPassword(loginRequest.password)
+                password = aesUtils.encrypt(loginRequest.password)
                 role = findOrCreateRoles(thingsBoardIncomeToken)[0]
             }
 
@@ -187,8 +188,4 @@ class AuthController(
         )
     }
 
-    fun encryptPassword(rawPassword: String): String {
-        val encoder = BCryptPasswordEncoder()
-        return encoder.encode(rawPassword)
-    }
 }

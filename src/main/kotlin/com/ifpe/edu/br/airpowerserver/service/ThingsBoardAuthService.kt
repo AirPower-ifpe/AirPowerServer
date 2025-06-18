@@ -12,7 +12,9 @@ import org.springframework.stereotype.Service
 import org.springframework.web.client.RestTemplate
 
 @Service
-class ThingsBoardAuthService(private val restTemplate: RestTemplate) {
+class ThingsBoardAuthService(
+    private val restTemplate: RestTemplate
+) {
 
     @Value("\${thingsboard.api.url}")
     private lateinit var thingsBoardApiUrl: String

@@ -19,6 +19,7 @@ import com.ifpe.edu.br.airpowerserver.service.ThingsBoardAuthService
 import jakarta.transaction.Transactional
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -51,8 +52,8 @@ class AuthController(
             val airPowerUser = airPowerUserRepository.findById(thingsBoardUserId).orElse(AirPowerUser()).apply {
                 id = thingsBoardUserId
                 email = loginRequest.username
-                password = loginRequest.password // Considere não guardar a senha em texto plano aqui.
-                roles = findOrCreateRoles(thingsBoardIncomeToken)
+                password = encryptPassword(loginRequest.password)
+                role = findOrCreateRoles(thingsBoardIncomeToken)[0]
             }
 
             airPowerUserRepository.save(airPowerUser)
@@ -92,7 +93,7 @@ class AuthController(
             return buildErrorResponse(
                 status = 401,
                 throwable = e,
-                errorCode = Constants.ErrorCodes.AUTHENTICATION_FAILED
+                errorCode = Constants.ResponseErrorCodes.THINGSBOARD_AUTHENTICATION_FAILURE
             )
         }
     }
@@ -108,7 +109,7 @@ class AuthController(
                 return buildErrorResponse(
                     status = 401,
                     throwable = IllegalAccessException("Token not found"),
-                    errorCode = Constants.ErrorCodes.TOKEN_EXPIRED
+                    errorCode = Constants.ResponseErrorCodes.TOKEN_EXPIRED
                 )
             }
             val storedThingsBoardToken = tokenRepository.findByUserIdAndScope(
@@ -119,7 +120,7 @@ class AuthController(
                 return buildErrorResponse(
                     status = 500,
                     throwable = IllegalAccessException("ThingsBoard token not found"),
-                    errorCode = Constants.ErrorCodes.TOKEN_EXPIRED
+                    errorCode = Constants.ResponseErrorCodes.TOKEN_EXPIRED
                 )
             }
 
@@ -145,7 +146,7 @@ class AuthController(
             return buildErrorResponse(
                 status = 401,
                 throwable = e,
-                errorCode = Constants.ErrorCodes.TOKEN_EXPIRED
+                errorCode = Constants.ResponseErrorCodes.TOKEN_EXPIRED
             )
         }
     }
@@ -184,5 +185,10 @@ class AuthController(
                 timestamp = Instant.now().toString()
             )
         )
+    }
+
+    fun encryptPassword(rawPassword: String): String {
+        val encoder = BCryptPasswordEncoder()
+        return encoder.encode(rawPassword)
     }
 }

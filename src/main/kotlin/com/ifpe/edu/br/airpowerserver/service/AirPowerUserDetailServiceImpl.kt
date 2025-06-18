@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service
 class AirPowerUserDetailServiceImpl(
     val airPowerUserRepository: AirPowerUserRepository
 ) : UserDetailsService {
+
     override fun loadUserByUsername(username: String): UserDetails? {
         val airPowerUser: AirPowerUser? =
             airPowerUserRepository.findByEmail(username)

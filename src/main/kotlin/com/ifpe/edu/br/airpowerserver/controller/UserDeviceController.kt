@@ -20,10 +20,6 @@ class UserDeviceController(
     fun getDeviceSummariesForUser(@PathVariable userId: String): ResponseEntity<List<DeviceSummaryDTO>> {
         logger.warn("Received getDeviceSummariesForUser user id: $userId")
         val deviceSummaries = userDeviceService.getDeviceSummariesForUser(userId)
-        return if (deviceSummaries.isNotEmpty()) {
-            ResponseEntity.ok(deviceSummaries)
-        } else {
-            ResponseEntity.ok(emptyList())
-        }
+        return ResponseEntity.ok(deviceSummaries)
     }
 }

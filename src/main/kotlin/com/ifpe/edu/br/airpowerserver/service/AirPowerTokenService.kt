@@ -2,9 +2,10 @@ package com.ifpe.edu.br.airpowerserver.service
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.auth0.jwt.exceptions.JWTVerificationException
 import com.ifpe.edu.br.airpowerserver.config.AirPowerUserDetailsImpl
 import com.ifpe.edu.br.airpowerserver.dto.auth.TokenResponse
+import com.ifpe.edu.br.airpowerserver.dto.error.DownstreamServiceException
+import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 import com.ifpe.edu.br.airpowerserver.repository.airpower.TokenRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -27,7 +28,7 @@ class AirPowerTokenService(
     @Value("\${airpower.jwt.expirationMinutes}")
     private lateinit var airPowerJWTExpirationMinutes: Number
 
-    @Value("\${airpower.refreshToken.expirationDays}")
+    @Value("\${airpower.refreshToken.expirationMinutes}")
     private lateinit var airPowerRefreshTokenExpirationMinutes: Number
 
     private val issuer = "AirPowerServer"
@@ -55,7 +56,7 @@ class AirPowerTokenService(
             .withExpiresAt(
                 Date(
                     System.currentTimeMillis()
-                            + TimeUnit.DAYS.toMillis(airPowerRefreshTokenExpirationMinutes.toLong())
+                            + TimeUnit.MINUTES.toMillis(airPowerRefreshTokenExpirationMinutes.toLong())
                 )
             )
             .sign(algorithm)
@@ -71,7 +72,9 @@ class AirPowerTokenService(
                 .verify(token)
                 .subject
         } catch (ex: Exception) {
-            throw JWTVerificationException("token is not valid", ex)
+            throw DownstreamServiceException(
+                ErrorCode.INVALID_AIRPOWER_TOKEN, "invalid token",
+            )
         }
     }
 }

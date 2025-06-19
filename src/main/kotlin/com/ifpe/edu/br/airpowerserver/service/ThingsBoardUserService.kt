@@ -39,7 +39,6 @@ class ThingsBoardUserService(
         try {
             val response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, ThingsBoardUser::class.java)
             if (response.statusCode.is2xxSuccessful && response.body != null) {
-                logger.error("chegou aquiii {}", response.statusCode)
                 return response.body!!
             } else {
                 logger.error("Falha ao buscar utilizador do ThingsBoard. Status: {}", response.statusCode)

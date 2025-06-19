@@ -1,6 +1,7 @@
 package com.ifpe.edu.br.airpowerserver.service
 
 import com.ifpe.edu.br.airpowerserver.dto.DeviceSummaryDTO
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import org.slf4j.LoggerFactory
 import org.springframework.dao.EmptyResultDataAccessException
 import org.springframework.jdbc.core.JdbcTemplate
@@ -54,27 +55,18 @@ class UserDeviceService(private val jdbcTemplate: JdbcTemplate) {
     }
 
     fun getDeviceSummariesForUser(userIdStr: String): List<DeviceSummaryDTO> {
-        val userUuid: UUID
-        try {
-            userUuid = UUID.fromString(userIdStr)
-        } catch (e: IllegalArgumentException) {
-            logger.warn("Formato de User ID inválido: {}", userIdStr)
-            return emptyList()
-        }
+        val userUuid: UUID = UUID.fromString(userIdStr)
         val userInfoSql = "SELECT tenant_id, customer_id FROM tb_user WHERE id = ?"
         val userInfo: UserInfo? = try {
             jdbcTemplate.queryForObject(userInfoSql, userInfoRowMapper, userUuid)
-        } catch (e: EmptyResultDataAccessException) {
-            logger.warn("Usuário não encontrado com ID: {}", userUuid)
-            return emptyList()
         } catch (e: Exception) {
-            logger.error("Erro ao buscar informações do usuário {}: {}", userUuid, e.message)
-            return emptyList()
+            logger.warn("Usuário não encontrado com ID: {}", userUuid)
+            throw IllegalStateException("Informações do usuário não encontradas para ID: $userUuid")
         }
 
         if (userInfo == null) {
             logger.info("Informações do usuário não encontradas para ID: {}", userUuid)
-            return emptyList()
+            throw IllegalStateException("Informações do usuário não encontradas para ID: $userUuid")
         }
 
         var devicesSql = """
@@ -103,19 +95,7 @@ class UserDeviceService(private val jdbcTemplate: JdbcTemplate) {
         } else {
             devicesSql += " AND d.customer_id IS NULL"
         }
-
         devicesSql += " ORDER BY d.name"
-
-        return try {
-            logger.debug(
-                "Executando query para buscar resumos de dispositivos: {} com params: {}",
-                devicesSql,
-                queryParams
-            )
-            jdbcTemplate.query(devicesSql, deviceSummaryRowMapper, *queryParams.toTypedArray())
-        } catch (e: Exception) {
-            logger.error("Erro ao buscar resumos de dispositivos para o tenant {}: {}", userInfo.tenantId, e.message)
-            emptyList()
-        }
+        return jdbcTemplate.query(devicesSql, deviceSummaryRowMapper, *queryParams.toTypedArray())
     }
 }

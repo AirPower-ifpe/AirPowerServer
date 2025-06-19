@@ -9,6 +9,8 @@ import com.ifpe.edu.br.airpowerserver.dto.ErrorResponse
 import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.RefreshRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.ThingsBoardLoginResponse
+import com.ifpe.edu.br.airpowerserver.dto.error.DownstreamServiceException
+import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 import com.ifpe.edu.br.airpowerserver.entity.airpower.AirPowerUser
 import com.ifpe.edu.br.airpowerserver.entity.airpower.PersistToken
 import com.ifpe.edu.br.airpowerserver.entity.airpower.Role
@@ -45,111 +47,91 @@ class AuthController(
     fun login(
         @RequestBody loginRequest: LoginRequest
     ): ResponseEntity<Any> {
-        try {
-            logger.info("Logging into user {}", loginRequest.username)
-            val thingsBoardIncomeToken = thingsBoardAuthService.authenticate(loginRequest)
-            val thingsBoardUserId = getUserIdFromToken(thingsBoardIncomeToken)
+        logger.info("Logging into user {}", loginRequest.username)
+        val thingsBoardIncomeToken = thingsBoardAuthService.authenticate(loginRequest)
+        val thingsBoardUserId = getUserIdFromToken(thingsBoardIncomeToken)
 
-            val airPowerUser = airPowerUserRepository.findById(thingsBoardUserId).orElse(AirPowerUser()).apply {
-                id = thingsBoardUserId
-                email = loginRequest.username
-                password = aesUtils.encrypt(loginRequest.password)
-                role = findOrCreateRoles(thingsBoardIncomeToken)[0]
-            }
-
-            airPowerUserRepository.save(airPowerUser)
-
-            val thingsBoardPersistedToken =
-                tokenRepository.findByUserIdAndScope(thingsBoardUserId, Constants.Scope.THINGS_BOARD)
-                    ?.apply {
-                        jwt = thingsBoardIncomeToken.token
-                        refreshToken = thingsBoardIncomeToken.refreshToken
-                    }
-                    ?: PersistToken(
-                        jwt = thingsBoardIncomeToken.token,
-                        refreshToken = thingsBoardIncomeToken.refreshToken,
-                        userId = thingsBoardUserId,
-                        scope = Constants.Scope.THINGS_BOARD
-                    )
-            tokenRepository.save(thingsBoardPersistedToken)
-
-            val generateAirPowerToken = tokenService.generateAirPowerToken(AirPowerUserDetailsImpl(airPowerUser))
-            val airPowerPersistToken =
-                tokenRepository.findByUserIdAndScope(thingsBoardUserId, Constants.Scope.AIR_POWER)
-                    ?.apply {
-                        jwt = generateAirPowerToken.token
-                        refreshToken = generateAirPowerToken.refreshToken
-                    }
-                    ?: PersistToken(
-                        jwt = generateAirPowerToken.token,
-                        refreshToken = generateAirPowerToken.refreshToken,
-                        userId = thingsBoardUserId,
-                        scope = Constants.Scope.AIR_POWER
-                    )
-            tokenRepository.save(airPowerPersistToken)
-
-            return ResponseEntity.ok(generateAirPowerToken)
-        } catch (e: Exception) {
-            logger.error("Error while logging into user {}", loginRequest.username, e)
-            return buildErrorResponse(
-                status = 401,
-                throwable = e,
-                errorCode = Constants.ResponseErrorCodes.THINGSBOARD_AUTHENTICATION_FAILURE
-            )
+        val airPowerUser = airPowerUserRepository.findById(thingsBoardUserId).orElse(AirPowerUser()).apply {
+            id = thingsBoardUserId
+            email = loginRequest.username
+            password = aesUtils.encrypt(loginRequest.password)
+            role = findOrCreateRoles(thingsBoardIncomeToken)[0]
         }
+
+        airPowerUserRepository.save(airPowerUser)
+
+        val thingsBoardPersistedToken =
+            tokenRepository.findByUserIdAndScope(thingsBoardUserId, Constants.Scope.THINGS_BOARD)
+                ?.apply {
+                    jwt = thingsBoardIncomeToken.token
+                    refreshToken = thingsBoardIncomeToken.refreshToken
+                }
+                ?: PersistToken(
+                    jwt = thingsBoardIncomeToken.token,
+                    refreshToken = thingsBoardIncomeToken.refreshToken,
+                    userId = thingsBoardUserId,
+                    scope = Constants.Scope.THINGS_BOARD
+                )
+
+        tokenRepository.save(thingsBoardPersistedToken)
+
+        val generateAirPowerToken = tokenService.generateAirPowerToken(AirPowerUserDetailsImpl(airPowerUser))
+        val airPowerPersistToken =
+            tokenRepository.findByUserIdAndScope(thingsBoardUserId, Constants.Scope.AIR_POWER)
+                ?.apply {
+                    jwt = generateAirPowerToken.token
+                    refreshToken = generateAirPowerToken.refreshToken
+                }
+                ?: PersistToken(
+                    jwt = generateAirPowerToken.token,
+                    refreshToken = generateAirPowerToken.refreshToken,
+                    userId = thingsBoardUserId,
+                    scope = Constants.Scope.AIR_POWER
+                )
+        tokenRepository.save(airPowerPersistToken)
+        return ResponseEntity.ok(generateAirPowerToken)
     }
 
     @PostMapping("/token")
     fun refresh(
         @RequestBody refreshRequest: RefreshRequest
     ): ResponseEntity<Any> {
-        try {
-            logger.info("Refresh token: {}", refreshRequest.refreshToken)
-            val storedAirPowerToken = tokenRepository.findByRefreshToken(refreshRequest.refreshToken)
-            if (storedAirPowerToken == null) {
-                return buildErrorResponse(
-                    status = 401,
-                    throwable = IllegalAccessException("Token not found"),
-                    errorCode = Constants.ResponseErrorCodes.TOKEN_EXPIRED
-                )
-            }
-            val storedThingsBoardToken = tokenRepository.findByUserIdAndScope(
-                userId = storedAirPowerToken.userId,
-                scope = Constants.Scope.THINGS_BOARD
-            )
-            if (storedThingsBoardToken == null) {
-                return buildErrorResponse(
-                    status = 500,
-                    throwable = IllegalAccessException("ThingsBoard token not found"),
-                    errorCode = Constants.ResponseErrorCodes.TOKEN_EXPIRED
-                )
-            }
-
-            val thingsBoardRefreshedToken = thingsBoardAuthService
-                .updateSession(RefreshRequest(storedThingsBoardToken.refreshToken))
-
-            storedThingsBoardToken.jwt = thingsBoardRefreshedToken.token
-            storedThingsBoardToken.refreshToken = thingsBoardRefreshedToken.refreshToken
-            tokenRepository.save(storedThingsBoardToken)
-
-            val storedAirPowerUser = airPowerUserRepository.findById(storedAirPowerToken.userId)
-
-            logger.warn("storedAirPowerUser ${storedAirPowerUser.get()}")
-
-            val refreshedAirPowerToken =
-                tokenService.generateAirPowerToken(AirPowerUserDetailsImpl(storedAirPowerUser.get()))
-            storedAirPowerToken.jwt = refreshedAirPowerToken.token
-            storedAirPowerToken.refreshToken = refreshedAirPowerToken.refreshToken
-            tokenRepository.save(storedAirPowerToken)
-            return ResponseEntity.ok(refreshedAirPowerToken)
-        } catch (e: Exception) {
-            logger.error("Error while refresh token", e)
-            return buildErrorResponse(
-                status = 401,
-                throwable = e,
-                errorCode = Constants.ResponseErrorCodes.TOKEN_EXPIRED
+        logger.info("Refresh token: {}", refreshRequest.refreshToken)
+        val storedAirPowerToken = tokenRepository.findByRefreshToken(refreshRequest.refreshToken)
+        if (storedAirPowerToken == null) {
+            throw DownstreamServiceException(
+                ErrorCode.INVALID_REFRESH_TOKEN,
+                "Token not found"
             )
         }
+        val storedThingsBoardToken = tokenRepository.findByUserIdAndScope(
+            userId = storedAirPowerToken.userId,
+            scope = Constants.Scope.THINGS_BOARD
+        )
+        if (storedThingsBoardToken == null) {
+            throw DownstreamServiceException(
+                ErrorCode.INVALID_REFRESH_TOKEN,
+                "ThingsBoard token not found"
+            )
+        }
+
+        val thingsBoardRefreshedToken = thingsBoardAuthService
+            .updateSession(RefreshRequest(storedThingsBoardToken.refreshToken))
+
+        storedThingsBoardToken.jwt = thingsBoardRefreshedToken.token
+        storedThingsBoardToken.refreshToken = thingsBoardRefreshedToken.refreshToken
+        tokenRepository.save(storedThingsBoardToken)
+
+        val storedAirPowerUser = airPowerUserRepository.findById(storedAirPowerToken.userId)
+
+        logger.warn("storedAirPowerUser ${storedAirPowerUser.get()}")
+
+        val refreshedAirPowerToken =
+            tokenService.generateAirPowerToken(AirPowerUserDetailsImpl(storedAirPowerUser.get()))
+        storedAirPowerToken.jwt = refreshedAirPowerToken.token
+        storedAirPowerToken.refreshToken = refreshedAirPowerToken.refreshToken
+        tokenRepository.save(storedAirPowerToken)
+        return ResponseEntity.ok(refreshedAirPowerToken)
     }
 
     private fun findOrCreateRoles(incomingToken: ThingsBoardLoginResponse): MutableList<Role> {
@@ -172,20 +154,4 @@ class AuthController(
         val decodedThingsBoardJWT = JWT.decode(incomingToken.token)
         return UUID.fromString(decodedThingsBoardJWT.getClaim("userId").asString())
     }
-
-    private fun buildErrorResponse(
-        status: Int,
-        throwable: Throwable,
-        errorCode: Int
-    ): ResponseEntity<Any> {
-        return ResponseEntity.status(status).body(
-            ErrorResponse(
-                status = status,
-                message = "message: $throwable",
-                errorCode = errorCode,
-                timestamp = Instant.now().toString()
-            )
-        )
-    }
-
 }

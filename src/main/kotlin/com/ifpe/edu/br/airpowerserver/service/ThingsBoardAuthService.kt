@@ -3,7 +3,7 @@ package com.ifpe.edu.br.airpowerserver.service
 import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.RefreshRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.ThingsBoardLoginResponse
-import com.ifpe.edu.br.airpowerserver.dto.error.DownstreamServiceException
+import com.ifpe.edu.br.airpowerserver.config.DownstreamServiceException
 import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -11,7 +11,6 @@ import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
-import org.springframework.web.client.RestClientException
 import org.springframework.web.client.RestTemplate
 
 @Service
@@ -45,20 +44,11 @@ class ThingsBoardAuthService(
         url: String,
         requestEntity: HttpEntity<T>
     ): ThingsBoardLoginResponse {
-        try {
-            val response =
-                restTemplate.postForEntity(url, requestEntity, ThingsBoardLoginResponse::class.java)
-            return response.body ?: throw IllegalStateException("ThingsBoard response was null.")
-        } catch (e: RestClientException) {
-            throw DownstreamServiceException(
-                ErrorCode.TB_AUTHENTICATION_FAILED,
-                "Falha de autenticação"
-            )
-        } catch (e: Exception) {
-            throw DownstreamServiceException(ErrorCode.TB_GENERIC_ERROR, e.message)
-        }
+        val response = restTemplate.postForEntity(url, requestEntity, ThingsBoardLoginResponse::class.java)
+        return response.body ?: throw DownstreamServiceException(
+            ErrorCode.TB_GENERIC_ERROR, "A resposta do ThingsBoard foi nula."
+        )
     }
-
 
     fun getHeader(): HttpHeaders {
         return HttpHeaders().apply {

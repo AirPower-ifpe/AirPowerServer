@@ -66,6 +66,8 @@ dependencies {
 
     // Logback para logging
     implementation("ch.qos.logback:logback-classic:$logbackVersion")
+
+    implementation("org.apache.httpcomponents.client5:httpclient5")
 }
 
 kotlin {

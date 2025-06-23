@@ -1,4 +1,6 @@
-package com.ifpe.edu.br.airpowerserver.dto.error
+package com.ifpe.edu.br.airpowerserver.config
+
+import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 
 open class ApiException(
     val errorCode: ErrorCode,

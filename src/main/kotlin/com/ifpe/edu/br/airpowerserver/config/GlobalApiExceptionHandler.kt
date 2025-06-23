@@ -1,6 +1,9 @@
-package com.ifpe.edu.br.airpowerserver.dto.error
+package com.ifpe.edu.br.airpowerserver.config
 
+import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
+import com.ifpe.edu.br.airpowerserver.dto.error.ErrorResponse
 import org.slf4j.LoggerFactory
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ControllerAdvice
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -27,7 +30,7 @@ class GlobalApiExceptionHandler {
             message = ex.errorCode.defaultMessage,
             timestamp = System.currentTimeMillis()
         )
-        return ResponseEntity(errorResponse, org.springframework.http.HttpStatus.valueOf(ex.errorCode.httpStatus))
+        return ResponseEntity(errorResponse, HttpStatus.valueOf(ex.errorCode.httpStatus))
     }
 
     @ExceptionHandler(Exception::class)
@@ -39,7 +42,7 @@ class GlobalApiExceptionHandler {
             message = ErrorCode.UNKNOWN_INTERNAL_ERROR.defaultMessage,
             timestamp = System.currentTimeMillis()
         )
-        return ResponseEntity(errorResponse, org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
+        return ResponseEntity(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR)
     }
 
     @ExceptionHandler(IllegalStateException::class)
@@ -51,6 +54,6 @@ class GlobalApiExceptionHandler {
             message = ErrorCode.UNKNOWN_INTERNAL_ERROR.defaultMessage,
             timestamp = System.currentTimeMillis()
         )
-        return ResponseEntity(errorResponse, org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
+        return ResponseEntity(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR)
     }
 }

@@ -37,7 +37,7 @@ class AirPowerJpaConfig {
     ): LocalContainerEntityManagerFactoryBean {
         val jpaProperties = mapOf(
             "hibernate.hbm2ddl.auto" to "create",
-            "hibernate.show_sql" to "true",
+            "hibernate.show_sql" to "false",
             "hibernate.format_sql" to "true",
             "hibernate.dialect" to "org.hibernate.dialect.PostgreSQLDialect"
         )

@@ -9,7 +9,7 @@ import com.ifpe.edu.br.airpowerserver.dto.ErrorResponse
 import com.ifpe.edu.br.airpowerserver.dto.auth.LoginRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.RefreshRequest
 import com.ifpe.edu.br.airpowerserver.dto.auth.ThingsBoardLoginResponse
-import com.ifpe.edu.br.airpowerserver.dto.error.DownstreamServiceException
+import com.ifpe.edu.br.airpowerserver.config.DownstreamServiceException
 import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 import com.ifpe.edu.br.airpowerserver.entity.airpower.AirPowerUser
 import com.ifpe.edu.br.airpowerserver.entity.airpower.PersistToken

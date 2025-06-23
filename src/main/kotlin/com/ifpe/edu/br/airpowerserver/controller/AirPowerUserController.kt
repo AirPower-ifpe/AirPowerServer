@@ -1,6 +1,6 @@
 package com.ifpe.edu.br.airpowerserver.controller
 
-import com.ifpe.edu.br.airpowerserver.dto.error.DownstreamServiceException
+import com.ifpe.edu.br.airpowerserver.config.DownstreamServiceException
 import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 import com.ifpe.edu.br.airpowerserver.repository.airpower.AirPowerUserRepository
 import com.ifpe.edu.br.airpowerserver.service.ThingsBoardUserService
@@ -27,7 +27,7 @@ class AirPowerUserController(
         val username = authentication?.name
         return if (username == null) {
             throw DownstreamServiceException(
-                ErrorCode.INVALID_AIRPOWER_TOKEN,
+                ErrorCode.INVALID_REFRESH_TOKEN,
                 "user could not be found"
             )
         } else {

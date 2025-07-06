@@ -16,7 +16,8 @@ import java.util.*
 @Service
 class ThingsBoardUserService(
     private val restTemplate: RestTemplate,
-    private val tokenRepository: TokenRepository
+    private val tokenRepository: TokenRepository,
+    private val tbServiceUtil: ThingsBoardServiceUtil
 ) {
     @Value("\${thingsboard.api.url}")
     private lateinit var thingsBoardApiUrl: String
@@ -25,16 +26,8 @@ class ThingsBoardUserService(
 
     fun getCurrentUser(userId: UUID): ThingsBoardUser {
         logger.info("getCurrentUser ID: {}", userId)
-        val tbToken = tokenRepository.findByUserIdAndScope(userId, Constants.Scope.THINGS_BOARD)
-            ?: throw IllegalStateException("ThingsBoard token not found for user ID: $userId")
-
-        val headers = HttpHeaders().apply {
-            contentType = MediaType.APPLICATION_JSON
-            set("X-Authorization", "Bearer ${tbToken.jwt}")
-        }
-
         val url = "$thingsBoardApiUrl/api/auth/user"
-        val requestEntity = HttpEntity<String>(headers)
+        val requestEntity = HttpEntity<String>(tbServiceUtil.getAuthHeaders(userId))
 
         try {
             val response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, ThingsBoardUser::class.java)

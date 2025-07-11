@@ -25,4 +25,6 @@ class DeviceTelemetryController(private val deviceTelemetryService: DeviceTeleme
         val results = deviceTelemetryService.aggregateTelemetry(request)
         return ResponseEntity.ok(TelemetryAggregationResponse(results = results))
     }
+
+
 }

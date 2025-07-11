@@ -1,13 +1,13 @@
 package com.ifpe.edu.br.airpowerserver.service
 
-import com.ifpe.edu.br.airpowerserver.dto.agg.Agg
-import com.ifpe.edu.br.airpowerserver.dto.agg.AggDataWrapperResponse
-import com.ifpe.edu.br.airpowerserver.dto.agg.AggregationRequest
-import com.ifpe.edu.br.airpowerserver.dto.agg.ChartDataWrapper
-import com.ifpe.edu.br.airpowerserver.dto.agg.ChatEntry
+import com.ifpe.edu.br.airpowerserver.dto.agg.*
 import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
+import java.time.DayOfWeek
+import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 
 @Service
 class AggDataService(
@@ -15,10 +15,13 @@ class AggDataService(
 ) {
     private val logger = LoggerFactory.getLogger(AggDataService::class.java)
 
-
     fun getAggDataWrapper(
         request: AggregationRequest
-    ): AggDataWrapperResponse{
+    ): AggDataWrapperResponse {
+
+
+        val timestampWrapper = parseStartTs(request)
+
         val devicesIds = request.devicesIds
         val aggKey = request.aggKey // VOLTAGE, POWER, CURRENT
         val aggStrategy = request.aggStrategy // AVG, SUM, MAX
@@ -92,6 +95,58 @@ class AggDataService(
             label = aggLabel,
             chartDataWrapper = data,
             aggregation = agg,
-            size = 15)
+            size = 15
+        )
+    }
+}
+
+private fun parseStartTs(
+    request: AggregationRequest,
+): AggQueryTsWrapper {
+    val now = ZonedDateTime.now()
+    return when (request.timeInterval) {
+
+        TimeInterval.DAY -> {
+            AggQueryTsWrapper(
+                startTs = now.truncatedTo(ChronoUnit.DAYS).toInstant().toEpochMilli(),
+                endTs = now.toInstant().toEpochMilli()
+            )
+        }
+
+        TimeInterval.WEEK -> {
+            AggQueryTsWrapper(
+                startTs = now.with(
+                    TemporalAdjusters
+                        .previous(DayOfWeek.MONDAY))
+                    .truncatedTo(ChronoUnit.DAYS)
+                    .toInstant()
+                    .toEpochMilli(),
+                endTs = now.toInstant().toEpochMilli()
+            )
+        }
+
+        TimeInterval.MONTH -> {
+            AggQueryTsWrapper(
+                startTs = now.with(
+                    TemporalAdjusters
+                        .firstDayOfMonth())
+                    .truncatedTo(ChronoUnit.DAYS)
+                    .toInstant()
+                    .toEpochMilli(),
+                endTs = now.toInstant().toEpochMilli()
+            )
+        }
+
+        TimeInterval.YEAR -> {
+            AggQueryTsWrapper(
+                startTs = now.with(
+                    TemporalAdjusters
+                        .firstDayOfYear())
+                    .truncatedTo(ChronoUnit.DAYS)
+                    .toInstant()
+                    .toEpochMilli(),
+                endTs = now.toInstant().toEpochMilli()
+            )
+        }
     }
 }

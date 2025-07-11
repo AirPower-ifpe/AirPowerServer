@@ -2,14 +2,8 @@ package com.ifpe.edu.br.airpowerserver.controller
 
 import com.ifpe.edu.br.airpowerserver.dto.TelemetryAggregationRequest
 import com.ifpe.edu.br.airpowerserver.dto.TelemetryAggregationResponse
-import com.ifpe.edu.br.airpowerserver.dto.agg.Agg
-import com.ifpe.edu.br.airpowerserver.dto.agg.AggDataWrapperResponse
-import com.ifpe.edu.br.airpowerserver.dto.agg.AggregationRequest
-import com.ifpe.edu.br.airpowerserver.dto.agg.ChartDataWrapper
-import com.ifpe.edu.br.airpowerserver.dto.agg.ChatEntry
 import com.ifpe.edu.br.airpowerserver.service.DeviceTelemetryService
 import jakarta.validation.Valid
-import lombok.`val`
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping

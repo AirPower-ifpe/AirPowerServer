@@ -1,6 +1,6 @@
 package com.ifpe.edu.br.airpowerserver.dto.agg
 
-data class ChatEntry(
+data class ChartEntry(
     val label: String,
     val value: Long
 )

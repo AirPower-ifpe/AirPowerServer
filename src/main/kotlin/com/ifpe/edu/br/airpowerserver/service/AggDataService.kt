@@ -93,7 +93,7 @@ class AggDataService(
             JOIN key_dictionary AS d ON t.key = d.key_id
             WHERE t.entity_id IN (:deviceIds) AND d.key = :aggKey AND t.ts BETWEEN :startTs AND :endTs
         """.trimIndent()
-        val totalValue = jdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0.0
+        val totalValue = jdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
 
         return AggDataWrapperResponse(
             label = "Consumo ${parseWrapperLabel(request.timeIntervalWrapper.timeInterval)}",
@@ -109,11 +109,10 @@ class AggDataService(
         )
     }
 
-    fun formatEpochToDate(epochMillis: Long): String {
-        val date = Date(epochMillis)
-        val formatter = SimpleDateFormat("dd/MM/yyyy", ptBrLocale)
-        formatter.timeZone = TimeZone.getDefault()
-        return formatter.format(date)
+    private fun formatEpochToDate(epochMillis: Long): String {
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy", ptBrLocale)
+            .withZone(ZoneId.of("America/Sao_Paulo"))
+        return formatter.format(Instant.ofEpochMilli(epochMillis))
     }
 
     private fun parseAggKey(aggKey: TelemetryKey): String {

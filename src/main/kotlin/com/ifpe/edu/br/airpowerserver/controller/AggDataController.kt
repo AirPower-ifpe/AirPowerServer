@@ -1,5 +1,8 @@
 package com.ifpe.edu.br.airpowerserver.controller
 
+import com.ifpe.edu.br.airpowerserver.dto.DeviceAggregatedTelemetry
+import com.ifpe.edu.br.airpowerserver.dto.TelemetryAggregationRequest
+import com.ifpe.edu.br.airpowerserver.dto.TelemetryAggregationResponse
 import com.ifpe.edu.br.airpowerserver.dto.agg.AggDataWrapperResponse
 import com.ifpe.edu.br.airpowerserver.dto.agg.AggregationRequest
 import com.ifpe.edu.br.airpowerserver.service.AggDataService
@@ -42,5 +45,22 @@ class AggDataController(
     ): ResponseEntity<AggDataWrapperResponse> {
         logger.info("Received getDeviceAggregatedDataWrapper request: $request")
         return ResponseEntity.ok(aggDataService.getAggDataWrapper(request))
+    }
+
+    /**
+     * Endpoint para trazer dados agregados por chave e com dados de cada dispositivo
+     *
+     * * @param request O objeto [TelemetryAggregationRequest] contendo os parâmetros para a consulta de agregação.
+     * * @return Um [TelemetryAggregationResponse] contendo uma lista de [DeviceAggregatedTelemetry] com os dados para
+     * dispositivo encontrado
+     *
+     */
+    @PostMapping("/telemetry/aggregate")
+    fun getAggregatedTelemetry(
+        @Valid @RequestBody request: TelemetryAggregationRequest
+    ): ResponseEntity<TelemetryAggregationResponse> {
+        logger.warn("Received telemetry aggregation request: $request")
+        val results = aggDataService.aggregateTelemetry(request)
+        return ResponseEntity.ok(TelemetryAggregationResponse(results = results))
     }
 }

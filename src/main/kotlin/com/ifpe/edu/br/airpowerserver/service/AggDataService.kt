@@ -207,7 +207,7 @@ class AggDataService(
                     endTs = end.toInstant().toEpochMilli(),
                     timeGroup = "hour",
                     timeFormat = { ts ->
-                        Instant.ofEpochMilli(ts).atZone(start.zone).hour.toString() + "h"
+                        Instant.ofEpochMilli(ts).atZone(start.zone).hour.toString()
                     }
                 )
             }
@@ -235,7 +235,7 @@ class AggDataService(
                     endTs = end.toInstant().toEpochMilli(),
                     timeGroup = "day",
                     timeFormat = { ts ->
-                        "Dia " + Instant.ofEpochMilli(ts).atZone(start.zone).dayOfMonth
+                        Instant.ofEpochMilli(ts).atZone(start.zone).dayOfMonth.toString()
                     }
                 )
             }

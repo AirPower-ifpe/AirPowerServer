@@ -40,10 +40,12 @@ class AggDataService(
     /**
      * Orquestra a busca e agregação de dados de telemetria e status.
      *
-     * Este é o método principal do serviço. Ele executa 3 consultas em paralelo:
-     * 1. Dados agrupados para o gráfico de consumo.
-     * 2. Valor total agregado no período.
-     * 3. Resumo de status (ativos/inativos) dos dispositivos solicitados.
+     * Este é o método principal do serviço. Ele:
+     * 1. Busca os dados agregados esparsos do banco de dados.
+     * 2. Gera uma série temporal completa para o período solicitado.
+     * 3. Preenche os intervalos sem dados com o valor zero.
+     * 4. Busca o valor total agregado e o status dos dispositivos.
+     * 5. Monta e retorna o objeto de resposta completo.
      *
      * @param request O objeto [AggregationRequest] com os detalhes da solicitação.
      * @return Um [AggDataWrapperResponse] populado com todos os dados consolidados.
@@ -55,7 +57,9 @@ class AggDataService(
         val tsWrapper = parseTimeInterval(request.timeIntervalWrapper)
         val deviceUuids = request.devicesIds.map { UUID.fromString(it) }
 
-        val chartEntries = getChartEntries(request, tsWrapper, deviceUuids)
+        val sparseChartEntries = getSparseChartEntries(request, tsWrapper, deviceUuids)
+        val completeChartEntries = padChartEntries(sparseChartEntries, tsWrapper)
+
         val totalValue = getTotalAggregatedValue(request, tsWrapper, deviceUuids)
         val statusSummaries = getDevicesStatusSummary(deviceUuids)
 
@@ -63,7 +67,7 @@ class AggDataService(
             label = "Consumo ${parseWrapperLabel(request.timeIntervalWrapper.timeInterval)}",
             chartDataWrapper = ChartDataWrapper(
                 label = parseAggKey(request.aggKey),
-                entries = chartEntries
+                entries = completeChartEntries
             ),
             statusSummaries = statusSummaries,
             aggregation = Agg(
@@ -72,6 +76,85 @@ class AggDataService(
             ),
             size = request.devicesIds.size
         )
+    }
+
+    /**
+     * Gera uma lista completa de todos os labels de tempo (ex: meses, dias)
+     * para um determinado intervalo.
+     */
+    private fun generateCompleteTimeLabels(tsWrapper: AggQueryTsWrapper): List<String> {
+        val labels = mutableListOf<String>()
+        var currentTs = ZonedDateTime.ofInstant(Instant.ofEpochMilli(tsWrapper.startTs), ZoneId.systemDefault())
+        val endTs = ZonedDateTime.ofInstant(Instant.ofEpochMilli(tsWrapper.endTs), ZoneId.systemDefault())
+
+        while (currentTs.isBefore(endTs)) {
+            labels.add(tsWrapper.timeFormat(currentTs.toInstant().toEpochMilli()))
+            currentTs = when (tsWrapper.timeGroup) {
+                "hour" -> currentTs.plusHours(1)
+                "day" -> currentTs.plusDays(1)
+                "month" -> currentTs.plusMonths(1)
+                else -> break
+            }
+        }
+        return labels
+    }
+
+    /**
+     * Preenche uma lista esparsa de entradas de gráfico para garantir que todos os intervalos de tempo
+     * dentro do período estejam presentes, adicionando valor 0 para os ausentes.
+     *
+     * @param sparseEntries A lista de dados retornada diretamente do banco de dados.
+     * @param tsWrapper O wrapper que contém o intervalo de tempo completo e a formatação.
+     * @return Uma lista de [ChartEntry] completa e ordenada.
+     */
+    private fun padChartEntries(sparseEntries: List<ChartEntry>, tsWrapper: AggQueryTsWrapper): List<ChartEntry> {
+        val dataMap = sparseEntries.associateBy { it.label }
+        val allPossibleLabels = generateCompleteTimeLabels(tsWrapper)
+        return allPossibleLabels.map { label ->
+            ChartEntry(
+                label = label,
+                value = dataMap[label]?.value ?: 0L
+            )
+        }
+    }
+
+    /**
+     * Busca os dados agregados do banco de dados. Retorna uma lista esparsa,
+     * contendo apenas os intervalos que possuem dados.
+     */
+    private fun getSparseChartEntries(
+        request: AggregationRequest,
+        tsWrapper: AggQueryTsWrapper,
+        deviceUuids: List<UUID>
+    ): List<ChartEntry> {
+        val params = MapSqlParameterSource()
+            .addValue("deviceIds", deviceUuids)
+            .addValue("aggKey", request.aggKey.name.lowercase())
+            .addValue("startTs", tsWrapper.startTs)
+            .addValue("endTs", tsWrapper.endTs)
+
+        val safeAggStrategy = request.aggStrategy.name
+        val chartSql = """
+            SELECT
+                DATE_TRUNC(:timeGroup, to_timestamp(t.ts / 1000)) AS time_bucket,
+                ${safeAggStrategy}(t.long_v) AS aggregated_value
+            FROM ts_kv AS t
+            JOIN key_dictionary AS d ON t.key = d.key_id
+            WHERE
+                t.entity_id IN (:deviceIds) AND
+                d.key = :aggKey AND
+                t.ts BETWEEN :startTs AND :endTs
+            GROUP BY time_bucket
+            ORDER BY time_bucket
+        """.trimIndent()
+
+        val finalChartSql = chartSql.replace(":timeGroup", "'${tsWrapper.timeGroup}'")
+        return namedJdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
+            ChartEntry(
+                label = tsWrapper.timeFormat(rs.getTimestamp("time_bucket").time),
+                value = rs.getLong("aggregated_value")
+            )
+        })
     }
 
     /**
@@ -110,41 +193,6 @@ class AggDataService(
         )
     }
 
-    private fun getChartEntries(
-        request: AggregationRequest,
-        tsWrapper: AggQueryTsWrapper,
-        deviceUuids: List<UUID>
-    ): List<ChartEntry> {
-        val params = MapSqlParameterSource()
-            .addValue("deviceIds", deviceUuids)
-            .addValue("aggKey", request.aggKey.name.lowercase())
-            .addValue("startTs", tsWrapper.startTs)
-            .addValue("endTs", tsWrapper.endTs)
-
-        val safeAggStrategy = request.aggStrategy.name
-        val chartSql = """
-            SELECT
-                DATE_TRUNC(:timeGroup, to_timestamp(t.ts / 1000)) AS time_bucket,
-                ${safeAggStrategy}(t.long_v) AS aggregated_value
-            FROM ts_kv AS t
-            JOIN key_dictionary AS d ON t.key = d.key_id
-            WHERE
-                t.entity_id IN (:deviceIds) AND
-                d.key = :aggKey AND
-                t.ts BETWEEN :startTs AND :endTs
-            GROUP BY time_bucket
-            ORDER BY time_bucket
-        """.trimIndent()
-
-        val finalChartSql = chartSql.replace(":timeGroup", "'${tsWrapper.timeGroup}'")
-        return namedJdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
-            ChartEntry(
-                label = tsWrapper.timeFormat(rs.getTimestamp("time_bucket").time),
-                value = rs.getLong("aggregated_value")
-            )
-        })
-    }
-
     private fun getTotalAggregatedValue(
         request: AggregationRequest,
         tsWrapper: AggQueryTsWrapper,
@@ -165,12 +213,6 @@ class AggDataService(
         """.trimIndent()
 
         return namedJdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
-    }
-
-    private fun formatEpochToDate(epochMillis: Long): String {
-        val formatter = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy", ptBrLocale)
-            .withZone(ZoneId.of("America/Sao_Paulo"))
-        return formatter.format(Instant.ofEpochMilli(epochMillis))
     }
 
     private fun parseAggKey(aggKey: TelemetryKey): String {
@@ -198,10 +240,12 @@ class AggDataService(
             ZoneId.systemDefault()
         ).withNano(0)
 
+        val now = ZonedDateTime.now(rawStart.zone)
+
         return when (timeIntervalWrapper.timeInterval) {
             TimeInterval.DAY -> {
                 val start = rawStart.truncatedTo(ChronoUnit.DAYS)
-                val end = start.plusDays(1)
+                val end = if (start.isBefore(now.truncatedTo(ChronoUnit.DAYS))) start.plusDays(1) else now
                 AggQueryTsWrapper(
                     startTs = start.toInstant().toEpochMilli(),
                     endTs = end.toInstant().toEpochMilli(),
@@ -215,7 +259,10 @@ class AggDataService(
             TimeInterval.WEEK -> {
                 val start =
                     rawStart.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).truncatedTo(ChronoUnit.DAYS)
-                val end = start.plusWeeks(1)
+                val end = if (start.isBefore(
+                        now.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).truncatedTo(ChronoUnit.DAYS)
+                    )
+                ) start.plusWeeks(1) else now
                 AggQueryTsWrapper(
                     startTs = start.toInstant().toEpochMilli(),
                     endTs = end.toInstant().toEpochMilli(),
@@ -229,7 +276,10 @@ class AggDataService(
 
             TimeInterval.MONTH -> {
                 val start = rawStart.with(TemporalAdjusters.firstDayOfMonth()).truncatedTo(ChronoUnit.DAYS)
-                val end = start.plusMonths(1)
+                val end = if (start.isBefore(
+                        now.with(TemporalAdjusters.firstDayOfMonth()).truncatedTo(ChronoUnit.DAYS)
+                    )
+                ) start.plusMonths(1) else now
                 AggQueryTsWrapper(
                     startTs = start.toInstant().toEpochMilli(),
                     endTs = end.toInstant().toEpochMilli(),
@@ -242,7 +292,10 @@ class AggDataService(
 
             TimeInterval.YEAR -> {
                 val start = rawStart.with(TemporalAdjusters.firstDayOfYear()).truncatedTo(ChronoUnit.DAYS)
-                val end = start.plusYears(1)
+                val end = if (start.isBefore(
+                        now.with(TemporalAdjusters.firstDayOfYear()).truncatedTo(ChronoUnit.DAYS)
+                    )
+                ) start.plusYears(1) else now
                 AggQueryTsWrapper(
                     startTs = start.toInstant().toEpochMilli(),
                     endTs = end.toInstant().toEpochMilli(),
@@ -382,5 +435,4 @@ class AggDataService(
             null
         }
     }
-
 }

@@ -1,13 +1,17 @@
 package com.ifpe.edu.br.airpowerserver.service
 
+import com.ifpe.edu.br.airpowerserver.dto.DeviceAggregatedTelemetry
+import com.ifpe.edu.br.airpowerserver.dto.Telemetry
+import com.ifpe.edu.br.airpowerserver.dto.TelemetryAggregationRequest
 import com.ifpe.edu.br.airpowerserver.dto.agg.*
 import org.slf4j.LoggerFactory
+import org.springframework.dao.EmptyResultDataAccessException
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Service
 import java.sql.ResultSet
-import java.text.SimpleDateFormat
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
@@ -18,48 +22,101 @@ import java.time.temporal.TemporalAdjusters
 import java.util.*
 
 /**
- * Serviço responsável por realizar a agregação de dados de telemetria.
+ * Serviço responsável por realizar a agregação de dados de telemetria e status de dispositivos.
  *
  * Este serviço se comunica diretamente com o banco de dados do ThingsBoard para
  * executar consultas SQL otimizadas, buscando dados agregados de forma performática.
- * Ele é projetado para suportar diferentes estratégias de agregação (AVG, SUM, etc.)
- * e diversos intervalos de tempo.
  *
- * @property jdbcTemplate O template para execução de queries SQL com parâmetros nomeados.
+ * @property namedJdbcTemplate O template para execução de queries SQL com parâmetros nomeados.
  */
 @Service
 class AggDataService(
-    private val jdbcTemplate: NamedParameterJdbcTemplate
+    private val namedJdbcTemplate: NamedParameterJdbcTemplate,
+    private val jdbcTemplate: JdbcTemplate
 ) {
     private val logger = LoggerFactory.getLogger(AggDataService::class.java)
     private val ptBrLocale = Locale("pt", "BR")
 
     /**
-     * Orquestra a busca e agregação de dados de telemetria.
+     * Orquestra a busca e agregação de dados de telemetria e status.
      *
-     * Este é o método principal do serviço. Ele:
-     * 1. Interpreta a requisição para definir o período de tempo.
-     * 2. Constrói e executa duas queries SQL nativas:
-     * - Uma para obter os dados agrupados para o gráfico.
-     * - Outra para obter o valor total agregado no período.
-     * 3. Mapeia os resultados e monta o objeto de resposta [AggDataWrapperResponse].
+     * Este é o método principal do serviço. Ele executa 3 consultas em paralelo:
+     * 1. Dados agrupados para o gráfico de consumo.
+     * 2. Valor total agregado no período.
+     * 3. Resumo de status (ativos/inativos) dos dispositivos solicitados.
      *
      * @param request O objeto [AggregationRequest] com os detalhes da solicitação.
-     * @return Um [AggDataWrapperResponse] populado com os dados reais do banco.
+     * @return Um [AggDataWrapperResponse] populado com todos os dados consolidados.
      */
     fun getAggDataWrapper(
         request: AggregationRequest
     ): AggDataWrapperResponse {
         logger.info("getAggDataWrapper(): request: $request")
         val tsWrapper = parseTimeInterval(request.timeIntervalWrapper)
-        logger.info(
-            "Calculated time range-> timeGroup:${tsWrapper.timeGroup} " +
-                    "startTs=${tsWrapper.startTs} : ${formatEpochToDate(tsWrapper.startTs)}, " +
-                    "endTs=${tsWrapper.endTs} : ${formatEpochToDate(tsWrapper.endTs)}"
-        )
+        val deviceUuids = request.devicesIds.map { UUID.fromString(it) }
 
+        val chartEntries = getChartEntries(request, tsWrapper, deviceUuids)
+        val totalValue = getTotalAggregatedValue(request, tsWrapper, deviceUuids)
+        val statusSummaries = getDevicesStatusSummary(deviceUuids)
+
+        return AggDataWrapperResponse(
+            label = "Consumo ${parseWrapperLabel(request.timeIntervalWrapper.timeInterval)}",
+            chartDataWrapper = ChartDataWrapper(
+                label = parseAggKey(request.aggKey),
+                entries = chartEntries
+            ),
+            statusSummaries = statusSummaries,
+            aggregation = Agg(
+                label = "Total no período",
+                value = "$totalValue"
+            ),
+            size = request.devicesIds.size
+        )
+    }
+
+    /**
+     * Busca e calcula o resumo de status (Ativos/Inativos) para uma lista de dispositivos.
+     * A busca é feita consultando o atributo de servidor 'active' na tabela 'attribute_kv'.
+     *
+     * @param deviceIds Lista de UUIDs dos dispositivos a serem verificados.
+     * @return Uma lista de [DevicesStatusSummary].
+     */
+    private fun getDevicesStatusSummary(deviceIds: List<UUID>): List<DevicesStatusSummary> {
+        if (deviceIds.isEmpty()) return emptyList()
+        val sql = """
+            SELECT
+                bool_v AS is_active,
+                COUNT(*) AS status_count
+            FROM attribute_kv
+            WHERE
+                entity_id IN (:deviceIds) AND
+                attribute_key = (SELECT key_id FROM key_dictionary WHERE key = 'active')
+            GROUP BY
+                is_active;
+        """.trimIndent()
+
+        val params = MapSqlParameterSource("deviceIds", deviceIds)
+
+        val results = namedJdbcTemplate.query(sql, params) { rs: ResultSet, _: Int ->
+            rs.getBoolean("is_active") to rs.getInt("status_count")
+        }.toMap()
+
+        val activeCount = results[true] ?: 0
+        val inactiveCount = results[false] ?: 0
+
+        return listOf(
+            DevicesStatusSummary("Ativos", activeCount),
+            DevicesStatusSummary("Inativos", inactiveCount)
+        )
+    }
+
+    private fun getChartEntries(
+        request: AggregationRequest,
+        tsWrapper: AggQueryTsWrapper,
+        deviceUuids: List<UUID>
+    ): List<ChartEntry> {
         val params = MapSqlParameterSource()
-            .addValue("deviceIds", request.devicesIds.map { UUID.fromString(it) })
+            .addValue("deviceIds", deviceUuids)
             .addValue("aggKey", request.aggKey.name.lowercase())
             .addValue("startTs", tsWrapper.startTs)
             .addValue("endTs", tsWrapper.endTs)
@@ -80,33 +137,34 @@ class AggDataService(
         """.trimIndent()
 
         val finalChartSql = chartSql.replace(":timeGroup", "'${tsWrapper.timeGroup}'")
-        val chartEntries = jdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
+        return namedJdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
             ChartEntry(
                 label = tsWrapper.timeFormat(rs.getTimestamp("time_bucket").time),
                 value = rs.getLong("aggregated_value")
             )
         })
+    }
 
+    private fun getTotalAggregatedValue(
+        request: AggregationRequest,
+        tsWrapper: AggQueryTsWrapper,
+        deviceUuids: List<UUID>
+    ): Long {
+        val params = MapSqlParameterSource()
+            .addValue("deviceIds", deviceUuids)
+            .addValue("aggKey", request.aggKey.name.lowercase())
+            .addValue("startTs", tsWrapper.startTs)
+            .addValue("endTs", tsWrapper.endTs)
+
+        val safeAggStrategy = request.aggStrategy.name
         val totalAggSql = """
             SELECT $safeAggStrategy(t.long_v)
             FROM ts_kv AS t
             JOIN key_dictionary AS d ON t.key = d.key_id
             WHERE t.entity_id IN (:deviceIds) AND d.key = :aggKey AND t.ts BETWEEN :startTs AND :endTs
         """.trimIndent()
-        val totalValue = jdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
 
-        return AggDataWrapperResponse(
-            label = "Consumo ${parseWrapperLabel(request.timeIntervalWrapper.timeInterval)}",
-            chartDataWrapper = ChartDataWrapper(
-                label = parseAggKey(request.aggKey),
-                entries = chartEntries
-            ),
-            aggregation = Agg(
-                label = "Total no período",
-                value = "$totalValue"
-            ),
-            size = request.devicesIds.size
-        )
+        return namedJdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
     }
 
     private fun formatEpochToDate(epochMillis: Long): String {
@@ -197,4 +255,132 @@ class AggDataService(
             }
         }
     }
+
+    private val deviceLabelRowMapper = RowMapper<String?> { rs: ResultSet, _: Int ->
+        rs.getString("label")
+    }
+
+    /**
+     * This function is not in a 'state of the art', it's just a first implementation to solve a problem,
+     * need to be enhanced as soon as possible to improve performance on a huge bunch of devices
+     */
+    fun aggregateTelemetry(
+        request: TelemetryAggregationRequest
+    ): List<DeviceAggregatedTelemetry> {
+
+        val results = mutableListOf<DeviceAggregatedTelemetry>()
+        val endTime = Instant.now()
+        val startTime = endTime.minus(request.timeWindowHours.toLong(), ChronoUnit.HOURS)
+        val startTs = startTime.toEpochMilli()
+        val endTs = endTime.toEpochMilli()
+
+        for (deviceIdString in request.deviceIds) {
+            val deviceUuid: UUID
+            val aggregatedTelemetries = mutableListOf<Telemetry>()
+            try {
+                deviceUuid = UUID.fromString(deviceIdString)
+            } catch (e: Exception) {
+                logger.warn("Invalid ID for device: {}", "ID: $deviceIdString Message:${e.message}")
+                continue
+            }
+            var deviceLabel: String?
+            try {
+                val query = "SELECT label FROM device WHERE id = ?"
+                deviceLabel =
+                    jdbcTemplate.query(query, deviceLabelRowMapper, deviceUuid)
+                        .firstOrNull() ?: "Device not found"
+            } catch (e: Exception) {
+                logger.error("Error while searching for device: {}: {}", deviceUuid, e.message)
+                deviceLabel = "DEVICE NOT_FOUND: $deviceUuid"
+            }
+
+            val telemetryQuery = """
+                SELECT dbl_v, long_v 
+                FROM ts_kv 
+                WHERE entity_id = ? 
+                  AND key = ? 
+                  AND ts >= ? 
+                  AND ts < ?
+                  AND (dbl_v IS NOT NULL OR long_v IS NOT NULL)
+            """.trimIndent()
+
+            for (telemetryKey in request.telemetryKeys) {
+                val keyId = getTelemetryKeyIdFromString(telemetryKey)
+                if (keyId == null) {
+                    logger.warn("Telemetry key ID not found '{}'", telemetryKey)
+                    continue
+                }
+                try {
+                    val values = jdbcTemplate.query(
+                        telemetryQuery,
+                        { rs: ResultSet, _: Int ->
+                            val dblVal = rs.getObject("dbl_v") as? Number
+                            val longVal = rs.getObject("long_v") as? Number
+                            (dblVal?.toDouble() ?: longVal?.toDouble())
+                        },
+                        deviceUuid, keyId, startTs, endTs
+                    ).filterNotNull()
+                    val dataPointsCount = values.size
+                    val aggregatedValue: Double? = if (values.isNotEmpty()) {
+                        when (request.aggregationFunction.uppercase()) {
+                            "AVG" -> values.average()
+                            "SUM" -> values.sum()
+                            "MIN" -> values.minOrNull()
+                            "MAX" -> values.maxOrNull()
+                            "COUNT" -> values.size.toDouble()
+                            else -> {
+                                logger.warn("Aggregation function not found: {}", request.aggregationFunction)
+                                null
+                            }
+                        }
+                    } else {
+                        null
+                    }
+                    aggregatedTelemetries.add(
+                        Telemetry(
+                            key = telemetryKey,
+                            value = aggregatedValue,
+                            dataPointsConsidered = dataPointsCount
+                        )
+                    )
+                } catch (e: Exception) {
+                    logger.error(
+                        "Error while aggregate telemetry for device:{}: {}",
+                        deviceUuid,
+                        e.message
+                    )
+                }
+            }
+
+            results.add(
+                DeviceAggregatedTelemetry(
+                    deviceId = deviceUuid,
+                    deviceLabel = deviceLabel,
+                    telemetryKeys = request.telemetryKeys,
+                    aggregationFunction = request.aggregationFunction,
+                    timeWindowHours = request.timeWindowHours,
+                    aggregatedValues = aggregatedTelemetries,
+                )
+            )
+        }
+        logger.warn("ATTENTION, THIS FUNCTION NEEDS TO BE ENHANCED DUE TO REACH A BETTER PERFORMANCE AS SOON AS POSSIBLE")
+        return results
+    }
+
+    private fun getTelemetryKeyIdFromString(telemetryKeyString: String): Int? {
+        val query = "SELECT key_id FROM key_dictionary WHERE key = ?"
+        return try {
+            jdbcTemplate.queryForObject(query, Int::class.java, telemetryKeyString)
+        } catch (e: EmptyResultDataAccessException) {
+            logger.warn(
+                "Telemetry key not found for string: '{}' on dictionary: (ts_kv_dictionary).",
+                "keyString: $telemetryKeyString  message:${e.message}"
+            )
+            null
+        } catch (e: Exception) {
+            logger.error("Error while find key_id for key string '{}': {}", telemetryKeyString, e.message)
+            null
+        }
+    }
+
 }

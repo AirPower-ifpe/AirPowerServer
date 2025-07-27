@@ -1,7 +1,6 @@
 package com.ifpe.edu.br.airpowerserver.controller
 
 import com.ifpe.edu.br.airpowerserver.dto.DeviceSummaryDTO
-import com.ifpe.edu.br.airpowerserver.service.DeviceTelemetryService
 import com.ifpe.edu.br.airpowerserver.service.UserDeviceService
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
@@ -11,11 +10,11 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@RequestMapping("/test/api/v1/user")
-class UserDeviceController(
+@RequestMapping("/api/v1/user")
+class DevicesController(
     private val userDeviceService: UserDeviceService
 ) {
-    private val logger = LoggerFactory.getLogger(DeviceTelemetryService::class.java)
+    private val logger = LoggerFactory.getLogger(DevicesController::class.java)
     @GetMapping("/{userId}/devices-summary")
     fun getDeviceSummariesForUser(@PathVariable userId: String): ResponseEntity<List<DeviceSummaryDTO>> {
         logger.warn("Received getDeviceSummariesForUser user id: $userId")

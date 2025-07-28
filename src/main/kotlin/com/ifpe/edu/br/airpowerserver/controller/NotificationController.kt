@@ -3,7 +3,7 @@ package com.ifpe.edu.br.airpowerserver.controller
 
 import com.ifpe.edu.br.airpowerserver.config.DownstreamServiceException
 import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
-import com.ifpe.edu.br.airpowerserver.dto.notification.NotificationItem
+import com.ifpe.edu.br.airpowerserver.dto.notification.AirPowerNotificationItem
 import com.ifpe.edu.br.airpowerserver.repository.airpower.AirPowerUserRepository
 import com.ifpe.edu.br.airpowerserver.service.NotificationService
 import com.ifpe.edu.br.airpowerserver.service.ThingsBoardUserService
@@ -22,7 +22,7 @@ class NotificationController(
 ) {
 
     @GetMapping("/me")
-    fun getMyNotifications(): ResponseEntity<List<NotificationItem>> {
+    fun getMyNotifications(): ResponseEntity<List<AirPowerNotificationItem>> {
         val authentication = SecurityContextHolder.getContext().authentication
         val username = authentication?.name
         return if (username == null) {

@@ -1,7 +1,7 @@
 package com.ifpe.edu.br.airpowerserver.service
 
-import com.ifpe.edu.br.airpowerserver.dto.notification.NotificationItem
-import com.ifpe.edu.br.airpowerserver.dto.notification.TbNotificationDto
+import com.ifpe.edu.br.airpowerserver.dto.notification.AirPowerNotificationItem
+import com.ifpe.edu.br.airpowerserver.dto.notification.ThingsBoardNotification
 import com.ifpe.edu.br.airpowerserver.dto.notification.ThingsBoardNotificationResponse
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -26,9 +26,9 @@ class NotificationService(
      * Busca as notificações mais recentes para um usuário diretamente da API do ThingsBoard.
      *
      * @param userId O UUID do usuário logado no sistema AirPower.
-     * @return Uma lista de [NotificationItem] ordenada da mais recente para a mais antiga.
+     * @return Uma lista de [AirPowerNotificationItem] ordenada da mais recente para a mais antiga.
      */
-    fun getNotificationsForUser(userId: UUID): List<NotificationItem> {
+    fun getNotificationsForUser(userId: UUID): List<AirPowerNotificationItem> {
         logger.info("Fetching notifications from ThingsBoard for user: $userId")
         val url = "$thingsBoardApiUrl/api/notifications?page=0&pageSize=50&sortProperty=createdTime&sortOrder=DESC"
         val requestEntity = HttpEntity<String>(tbServiceUtil.getAuthHeaders(userId))
@@ -48,17 +48,26 @@ class NotificationService(
     /**
      * Transforma um objeto de notificação do ThingsBoard em um item de notificação padronizado.
      *
-     * @param tbNotification O [TbNotificationDto] a ser transformado.
-     * @return Um objeto [NotificationItem].
+     * @param tbNotification O [ThingsBoardNotification] a ser transformado.
+     * @return Um objeto [AirPowerNotificationItem].
      */
     private fun transformTbNotificationToNotificationItem(
-        tbNotification: TbNotificationDto
-    ): NotificationItem {
-        return NotificationItem(
-            label = tbNotification.subject,
-            message = tbNotification.text,
-            timestamp = tbNotification.createdTime,
-            isNew = tbNotification.status == "UNREAD"
+        tbNotification: ThingsBoardNotification
+    ): AirPowerNotificationItem {
+        return AirPowerNotificationItem(
+            id = tbNotification.id,
+            subject = tbNotification.subject,
+            type = tbNotification.type,
+            text = tbNotification.text,
+            createdTime = tbNotification.createdTime,
+            alarmType = tbNotification.info.alarmType,
+            alarmId = tbNotification.info.alarmId,
+            alarmOriginator = tbNotification.info.alarmOriginator,
+            alarmOriginatorName = tbNotification.info.alarmOriginatorName,
+            alarmSeverity = tbNotification.info.alarmSeverity,
+            alarmStatus = tbNotification.info.alarmStatus,
+            dashboardId = tbNotification.info.dashboardId,
+            status = tbNotification.status
         )
     }
 }

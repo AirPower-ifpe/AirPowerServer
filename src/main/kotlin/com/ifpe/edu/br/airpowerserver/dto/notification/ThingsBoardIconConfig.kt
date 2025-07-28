@@ -3,10 +3,13 @@ package com.ifpe.edu.br.airpowerserver.dto.notification
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class ThingsBoardNotificationResponse(
-    val data: List<ThingsBoardNotification>
-) {
+data class ThingsBoardIconConfig(
+    val enabled: Boolean,
+    val icon: String,
+    val color: String
+)
+{
     override fun toString(): String {
-        return "ThingsBoardNotificationResponse(data=$data)"
+        return "ThingsBoardIconConfig(enabled=$enabled, icon='$icon', color='$color')"
     }
 }

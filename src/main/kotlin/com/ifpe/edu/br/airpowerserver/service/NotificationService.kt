@@ -1,5 +1,7 @@
 package com.ifpe.edu.br.airpowerserver.service
 
+import com.ifpe.edu.br.airpowerserver.dto.Id
+import com.ifpe.edu.br.airpowerserver.dto.ThingsBoardUser
 import com.ifpe.edu.br.airpowerserver.dto.notification.AirPowerNotificationItem
 import com.ifpe.edu.br.airpowerserver.dto.notification.ThingsBoardNotification
 import com.ifpe.edu.br.airpowerserver.dto.notification.ThingsBoardNotificationResponse
@@ -7,6 +9,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpMethod
+import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.RestTemplate
@@ -69,5 +72,22 @@ class NotificationService(
             dashboardId = tbNotification.info.dashboardId,
             status = tbNotification.status
         )
+    }
+
+    fun markAsRead(
+        notificationId: Id,
+        thingsBoardUserFromApi: ThingsBoardUser
+    ): Boolean {
+        logger.info("markAsRead: id: $notificationId user: $thingsBoardUserFromApi")
+val url = "$thingsBoardApiUrl/api/notification/${notificationId.id}/read"
+        val requestEntity = HttpEntity<String>(tbServiceUtil.getAuthHeaders(thingsBoardUserFromApi.id.id))
+        try {
+            val response =
+                restTemplate.exchange(url, HttpMethod.PUT, requestEntity, Any::class.java)
+            return response.statusCode == HttpStatus.OK
+        } catch (e: HttpClientErrorException) {
+            logger.error("Error markAsRead:$e")
+            return false
+        }
     }
 }

@@ -46,7 +46,7 @@ class NotificationController(
         val username = authentication?.name
         return if (username == null) {
             throw DownstreamServiceException(
-                ErrorCode.INVALID_REFRESH_TOKEN,
+ErrorCode.INVALID_AIRPOWER_TOKEN,
                 "user could not be found"
             )
         } else {

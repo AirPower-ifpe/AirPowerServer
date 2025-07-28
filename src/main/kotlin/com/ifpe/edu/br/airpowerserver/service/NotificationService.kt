@@ -79,7 +79,7 @@ class NotificationService(
         thingsBoardUserFromApi: ThingsBoardUser
     ): Boolean {
         logger.info("markAsRead: id: $notificationId user: $thingsBoardUserFromApi")
-        val url = "$thingsBoardApiUrl/api/notification/${notificationId.id}/read\n"
+val url = "$thingsBoardApiUrl/api/notification/${notificationId.id}/read"
         val requestEntity = HttpEntity<String>(tbServiceUtil.getAuthHeaders(thingsBoardUserFromApi.id.id))
         try {
             val response =

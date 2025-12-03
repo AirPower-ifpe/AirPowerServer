@@ -62,48 +62,101 @@ class ThingsBoardDashboardService(
     /**
      * Busca os IDs de dispositivos únicos de um dashboard específico.
      */
-    fun getDeviceIdsFromDashboard(userId: UUID, dashboardId: String): List<Id> {
-        val sql = "SELECT configuration::text FROM dashboard WHERE id = :dashboardId"
+    fun getDeviceIdsFromDashboard(customerId: UUID, dashboardId: String): List<Id> {
+        val sqlConfig = "SELECT configuration::text FROM dashboard WHERE id = :dashboardId"
         val params = MapSqlParameterSource().addValue("dashboardId", UUID.fromString(dashboardId))
-        logger.debug("Buscando configuração do dashboard {} para o usuário {}", dashboardId, userId)
 
         try {
-            val configJson = namedJdbcTemplate.queryForObject(sql, params, String::class.java)
-                ?: throw EmptyResultDataAccessException("Configuração do dashboard não encontrada", 1)
-            val dashboardConfiguration = objectMapper.readValue<DashboardConfiguration>(configJson)
-            val deviceIds = mutableSetOf<Id>()
-            dashboardConfiguration.entityAliases?.values?.forEach { alias ->
-                if (alias.filter?.type == "singleEntity" &&
-                    alias.filter.singleEntity?.entityType == "DEVICE") {
+            val configJson = namedJdbcTemplate.queryForObject(sqlConfig, params, String::class.java)
+                ?: throw EmptyResultDataAccessException(1)
 
-                    try {
-                        val uuid = UUID.fromString(alias.filter.singleEntity.id)
-                        deviceIds.add(Id(entityType = "DEVICE", id = uuid))
-                    } catch (e: Exception) {
-                        logger.warn("UUID inválido no Alias: {}", alias.filter.singleEntity.id)
-                    }
-                }
-            }
-            dashboardConfiguration.widgets?.values?.forEach { widget ->
-                widget.config.datasources.forEach { datasource ->
-                    val idString = datasource.entityId ?: datasource.deviceId
-                    if (idString != null) {
-                        try {
-                            deviceIds.add(Id(entityType = "DEVICE", id = UUID.fromString(idString.id.toString())))
-                        } catch (e: Exception) {
-                            logger.warn("UUID inválido encontrado no widget do dashboard {}: {}", dashboardId, idString)
+            val dashboardConfig = objectMapper.readValue<DashboardConfiguration>(configJson)
+            val deviceIds = mutableSetOf<Id>()
+
+            dashboardConfig.entityAliases?.values?.forEach { alias ->
+                val filter = alias.filter ?: return@forEach
+
+                when (filter.type) {
+                    // ---------------------------------------------------------
+                    // OPÇÃO 1: Lista Manual (Entity List)
+                    // Útil para grupos pequenos e fixos (ex: A e B)
+                    // Configurado na GUI como Filter Type: "Entity List"
+                    // ---------------------------------------------------------
+                    "entityList" -> {
+                        filter.entityList?.forEach { idStr ->
+                            try {
+                                deviceIds.add(Id(entityType = "DEVICE", id = UUID.fromString(idStr)))
+                            } catch (e: Exception) { logger.warn("UUID inválido na lista: $idStr") }
                         }
                     }
+
+                    // ---------------------------------------------------------
+                    // OPÇÃO 2: Relations Query (A solução robusta)
+                    // Busca devices conectados a um Asset específico.
+                    // ---------------------------------------------------------
+                    "relationsQuery" -> {
+                        val rootId = filter.rootEntity?.id
+                        val direction = filter.direction // FROM ou TO
+                        // Se o usuário não definir relationType na GUI, o TB às vezes omite ou usa "Contains"
+                        val relationType = filter.relationType
+
+                        if (rootId != null && direction != null) {
+                            // Busca dinâmica na tabela de relações
+                            val relations = findRelatedDevices(
+                                UUID.fromString(rootId),
+                                direction,
+                                relationType
+                            )
+                            deviceIds.addAll(relations)
+                        }
+                    }
+
+                    // ... outros casos (singleEntity, etc) ...
                 }
             }
-            logger.info("Encontrados {} dispositivos no dashboard {}", deviceIds.size, dashboardId)
+
             return deviceIds.toList()
-        } catch (e: EmptyResultDataAccessException) {
-            logger.warn("Nenhum dashboard encontrado no DB com o ID: {} para usuário {}", dashboardId, userId)
-            return emptyList()
+
         } catch (e: Exception) {
-            logger.error("Falha ao parsear a configuração do dashboard {} (do DB): {}", dashboardId, e.message)
+            logger.error("Erro ao resolver dashboard {}: {}", dashboardId, e.message)
             return emptyList()
         }
     }
+
+    /**
+     * Busca na tabela 'relation' do ThingsBoard.
+     * Estrutura da tabela: from_id, from_type, to_id, to_type, relation_type_group, relation_type
+     */
+    private fun findRelatedDevices(rootEntityId: UUID, direction: String, relationType: String?): List<Id> {
+        // Se direction é FROM, o Asset é o 'from_id' e buscamos os 'to_id' (os devices)
+        // Se direction é TO, o Asset é o 'to_id' (menos comum para agrupamento)
+
+        val isFrom = direction.equals("FROM", ignoreCase = true)
+
+        val selectColumn = if (isFrom) "to_id" else "from_id"
+        val whereColumn = if (isFrom) "from_id" else "to_id"
+        // Garantimos que só retornamos dispositivos
+        val targetTypeColumn = if (isFrom) "to_type" else "from_type"
+
+        var sql = """
+            SELECT $selectColumn as device_id 
+            FROM relation 
+            WHERE $whereColumn = :rootId 
+              AND $targetTypeColumn = 'DEVICE'
+              AND relation_type_group = 'COMMON'
+        """
+
+        val params = MapSqlParameterSource().addValue("rootId", rootEntityId)
+
+        // Adiciona filtro por tipo de relação se especificado (ex: 'Contains')
+        if (!relationType.isNullOrBlank()) {
+            sql += " AND relation_type = :relType"
+            params.addValue("relType", relationType)
+        }
+
+        return namedJdbcTemplate.query(sql, params) { rs, _ ->
+            Id(entityType = "DEVICE", id = UUID.fromString(rs.getString("device_id")))
+        }
+    }
+
 }

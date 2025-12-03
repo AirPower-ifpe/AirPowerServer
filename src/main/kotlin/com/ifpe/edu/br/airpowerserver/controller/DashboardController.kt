@@ -32,6 +32,10 @@ class DashboardController(
         logger.info("Request received for device IDs from dashboard {} for user: {}", dashboardId, userId)
         val deviceIds = dashboardService.getDeviceIdsFromDashboard(UUID.fromString(userId), dashboardId)
         logger.info("deviceIds: {}", deviceIds)
-        return ResponseEntity.ok(deviceIds)
+        val devicesStrings = emptyList<String>()
+        for (deviceId in deviceIds) {
+            devicesStrings.plus(deviceId.id.toString())
+        }
+        return ResponseEntity.ok(devicesStrings)
     }
 }

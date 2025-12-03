@@ -30,12 +30,8 @@ class DashboardController(
         @PathVariable dashboardId: String
     ): ResponseEntity<List<String>> {
         logger.info("Request received for device IDs from dashboard {} for user: {}", dashboardId, userId)
-        val deviceIds = dashboardService.getDeviceIdsFromDashboard(UUID.fromString(userId), dashboardId)
-        logger.info("deviceIds: {}", deviceIds)
-        val devicesStrings = emptyList<String>()
-        for (deviceId in deviceIds) {
-            devicesStrings.plus(deviceId.id.toString())
-        }
-        return ResponseEntity.ok(devicesStrings)
+        val idObjects = dashboardService.getDeviceIdsFromDashboard(UUID.fromString(userId), dashboardId)
+        val uuidStrings = idObjects.map { it.id.toString() }
+        return ResponseEntity.ok(uuidStrings)
     }
 }

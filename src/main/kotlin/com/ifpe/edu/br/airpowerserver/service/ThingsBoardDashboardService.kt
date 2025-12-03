@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.ifpe.edu.br.airpowerserver.dto.Id
 import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardConfig
+import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardConfiguration
 import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardInfo
 import org.slf4j.LoggerFactory
 import org.springframework.dao.EmptyResultDataAccessException
@@ -21,8 +22,6 @@ class ThingsBoardDashboardService(
 ) {
     private val logger = LoggerFactory.getLogger(ThingsBoardDashboardService::class.java)
 
-    // CORREÇÃO: Usamos 'title' para preencher tanto o title quanto o name,
-    // pois a coluna 'name' não existe no banco.
     private val dashboardInfoRowMapper = RowMapper<DashboardInfo> { rs: ResultSet, _: Int ->
         val title = rs.getString("title")
         DashboardInfo(
@@ -36,10 +35,8 @@ class ThingsBoardDashboardService(
     }
 
     fun getDashboardsForUser(userId: UUID): List<DashboardInfo> {
-        // CORREÇÃO: Removida a coluna d.name do SELECT.
-        // Adicionado CAST(u.id AS uuid) ou ::uuid para garantir compatibilidade de tipos no Postgres.
         // Nota: A lógica de JOIN assume que a relação está populada na tabela 'relation'.
-        // Se esta query não retornar nada, podemos tentar usar a coluna 'assigned_customers'.
+        // Se esta query não retornar nada, devemos usar a coluna 'assigned_customers'.
         val sql = """
             SELECT d.id, d.title
             FROM dashboard d
@@ -58,42 +55,49 @@ class ThingsBoardDashboardService(
             namedJdbcTemplate.query(sql, params, dashboardInfoRowMapper)
         } catch (e: Exception) {
             logger.error("Erro ao buscar dashboards diretamente do DB para o usuário {}: {}", userId, e.message)
-            // É boa prática relançar ou tratar de forma que o controller saiba que falhou,
-            // mas retornar lista vazia é seguro para evitar crash.
             emptyList()
         }
     }
 
     /**
-     * Busca os IDs de dispositivos únicos de um dashboard específico, lendo a configuração JSON
-     * diretamente do banco de dados.
+     * Busca os IDs de dispositivos únicos de um dashboard específico.
      */
     fun getDeviceIdsFromDashboard(userId: UUID, dashboardId: String): List<Id> {
-        // O userId é usado para contexto de autorização (implícito), mas a query só precisa do dashboardId
         val sql = "SELECT configuration::text FROM dashboard WHERE id = :dashboardId"
         val params = MapSqlParameterSource().addValue("dashboardId", UUID.fromString(dashboardId))
         logger.debug("Buscando configuração do dashboard {} para o usuário {}", dashboardId, userId)
 
         try {
-            // 1. Buscar o JSON de configuração como uma String
             val configJson = namedJdbcTemplate.queryForObject(sql, params, String::class.java)
                 ?: throw EmptyResultDataAccessException("Configuração do dashboard não encontrada", 1)
-
-            // 2. Parsear o JSON usando ObjectMapper e os DTOs que já criamos
-            val dashboardConfig = objectMapper.readValue<DashboardConfig>(configJson)
+            val dashboardConfiguration = objectMapper.readValue<DashboardConfiguration>(configJson)
             val deviceIds = mutableSetOf<Id>()
+            dashboardConfiguration.entityAliases?.values?.forEach { alias ->
+                if (alias.filter?.type == "singleEntity" &&
+                    alias.filter.singleEntity?.entityType == "DEVICE") {
 
-            // 3. Extrair os IDs (lógica idêntica à anterior)
-            dashboardConfig.configuration.widgets.values.forEach { widget ->
-                widget.config.datasources.forEach { datasource ->
-                    val id = datasource.entityId ?: datasource.deviceId
-                    if (id != null) {
-                        deviceIds.add(id)
+                    try {
+                        val uuid = UUID.fromString(alias.filter.singleEntity.id)
+                        deviceIds.add(Id(entityType = "DEVICE", id = uuid))
+                    } catch (e: Exception) {
+                        logger.warn("UUID inválido no Alias: {}", alias.filter.singleEntity.id)
                     }
                 }
             }
+            dashboardConfiguration.widgets?.values?.forEach { widget ->
+                widget.config.datasources.forEach { datasource ->
+                    val idString = datasource.entityId ?: datasource.deviceId
+                    if (idString != null) {
+                        try {
+                            deviceIds.add(Id(entityType = "DEVICE", id = UUID.fromString(idString.id.toString())))
+                        } catch (e: Exception) {
+                            logger.warn("UUID inválido encontrado no widget do dashboard {}: {}", dashboardId, idString)
+                        }
+                    }
+                }
+            }
+            logger.info("Encontrados {} dispositivos no dashboard {}", deviceIds.size, dashboardId)
             return deviceIds.toList()
-
         } catch (e: EmptyResultDataAccessException) {
             logger.warn("Nenhum dashboard encontrado no DB com o ID: {} para usuário {}", dashboardId, userId)
             return emptyList()

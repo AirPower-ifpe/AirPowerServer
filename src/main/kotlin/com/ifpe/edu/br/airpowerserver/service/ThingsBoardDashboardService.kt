@@ -14,6 +14,15 @@ import org.springframework.stereotype.Service
 import java.sql.ResultSet
 import java.util.*
 
+/**
+ * Service class for handling business logic related to ThingsBoard dashboards.
+ *
+ * This service interacts directly with the ThingsBoard database to retrieve dashboard
+ * and device information, bypassing the ThingsBoard API for performance.
+ *
+ * @property namedJdbcTemplate The template for executing named parameter SQL queries.
+ * @property objectMapper The mapper for handling JSON serialization and deserialization.
+ */
 @Service
 class ThingsBoardDashboardService(
     private val namedJdbcTemplate: NamedParameterJdbcTemplate,
@@ -33,9 +42,17 @@ class ThingsBoardDashboardService(
         )
     }
 
+    /**
+     * Retrieves all dashboards assigned to a specific user.
+     *
+     * This method queries the database to find dashboards related to the user's customer entity
+     * and then populates each dashboard with its associated device IDs.
+     *
+     * @param userId The UUID of the user.
+     * @return A list of [DashboardInfo] objects, each containing details about a dashboard
+     *         and the IDs of devices associated with it. Returns an empty list if an error occurs.
+     */
     fun getDashboardsForUser(userId: UUID): List<DashboardInfo> {
-        // Nota: A lógica de JOIN assume que a relação está populada na tabela 'relation'.
-        // Se esta query não retornar nada, devemos usar a coluna 'assigned_customers'.
         val sql = """
             SELECT d.id, d.title
             FROM dashboard d
@@ -51,7 +68,12 @@ class ThingsBoardDashboardService(
         logger.debug("Buscando dashboards no DB para o usuário: {}", userId)
 
         return try {
-            namedJdbcTemplate.query(sql, params, dashboardInfoRowMapper)
+            val dashboards = namedJdbcTemplate.query(sql, params, dashboardInfoRowMapper)
+            dashboards.forEach { dashboard ->
+                dashboard.devicesIds = getDeviceIdsFromDashboard(dashboard.id.id.toString())
+                    .map { it.id.toString() }
+            }
+            dashboards
         } catch (e: Exception) {
             logger.error("Erro ao buscar dashboards diretamente do DB para o usuário {}: {}", userId, e.message)
             emptyList()
@@ -59,7 +81,14 @@ class ThingsBoardDashboardService(
     }
 
     /**
-     * Busca os IDs de dispositivos únicos de um dashboard específico.
+     * Extracts all unique device IDs from a specific dashboard's configuration.
+     *
+     * The method parses the dashboard's configuration JSON to find device aliases,
+     * which can be defined as a static list ('entityList') or a dynamic query ('relationsQuery').
+     *
+     * @param dashboardId The UUID of the dashboard as a String.
+     * @return A list of unique [Id] objects for the devices found in the dashboard.
+     *         Returns an empty list if the dashboard is not found or an error occurs.
      */
     fun getDeviceIdsFromDashboard(dashboardId: String): List<Id> {
         val sqlConfig = "SELECT configuration::text FROM dashboard WHERE id = :dashboardId"
@@ -76,8 +105,6 @@ class ThingsBoardDashboardService(
                 val filter = alias.filter ?: return@forEach
 
                 when (filter.type) {
-                    // OPÇÃO 1: Lista Manual (Entity List)
-                    // Configurado na GUI como Filter Type: "Entity List"
                     "entityList" -> {
                         filter.entityList?.forEach { idStr ->
                             try {
@@ -85,12 +112,9 @@ class ThingsBoardDashboardService(
                             } catch (e: Exception) { logger.warn("UUID inválido na lista: $idStr") }
                         }
                     }
-                    // OPÇÃO 2: Relations Query
-                    // Busca devices conectados a um Asset específico.
                     "relationsQuery" -> {
                         val rootId = filter.rootEntity?.id
-                        val direction = filter.direction // FROM ou TO
-                        // Se o usuário não definir relationType na GUI, o TB às vezes omite ou usa "Contains"
+                        val direction = filter.direction
                         val relationType = filter.relationType
                         if (rootId != null && direction != null) {
                             val relations = findRelatedDevices(
@@ -111,21 +135,25 @@ class ThingsBoardDashboardService(
     }
 
     /**
-     * Busca RECURSIVAMENTE na tabela 'relation' do ThingsBoard.
-     * Encontra todos os dispositivos descendentes, não importa a profundidade (Asset -> Asset -> Device).
+     * Recursively finds related devices in the ThingsBoard 'relation' table.
+     *
+     * This method performs a recursive SQL query to traverse the entity hierarchy
+     * (e.g., Asset -> Asset -> Device) and find all descendant devices.
+     *
+     * @param rootEntityId The starting UUID for the recursive search.
+     * @param direction The direction of the relationship ('FROM' or 'TO').
+     * @param relationType The specific type of relation to follow (e.g., 'Contains').
+     * @return A list of [Id] objects representing the found devices.
      */
     private fun findRelatedDevices(rootEntityId: UUID, direction: String, relationType: String?): List<Id> {
         val isFrom = direction.equals("FROM", ignoreCase = true)
 
-        // Se a direção é FROM (Root -> Filhos), a recursão segue from_id -> to_id.
         val parentColumn = if (isFrom) "from_id" else "to_id"
         val childColumn = if (isFrom) "to_id" else "from_id"
         val childTypeColumn = if (isFrom) "to_type" else "from_type"
 
-        // SQL Recursivo para PostgreSQL
         val sql = """
             WITH RECURSIVE entity_tree AS (
-                -- Caso Base: Encontra os filhos diretos da Entidade Raiz (ex: Campus -> Bloco A)
                 SELECT 
                     $childColumn as entity_id, 
                     $childTypeColumn as entity_type
@@ -136,7 +164,6 @@ class ThingsBoardDashboardService(
                 
                 UNION ALL
                 
-                -- Passo Recursivo: Encontra os filhos dos filhos (ex: Bloco A -> Device)
                 SELECT 
                     r.$childColumn, 
                     r.$childTypeColumn
@@ -145,7 +172,6 @@ class ThingsBoardDashboardService(
                 WHERE r.relation_type_group = 'COMMON'
                   ${if (!relationType.isNullOrBlank()) "AND r.relation_type = :relType" else ""}
             )
-            -- Filtro Final: Retorna apenas o que for DEVICE na árvore inteira
             SELECT entity_id 
             FROM entity_tree 
             WHERE entity_type = 'DEVICE'
@@ -161,5 +187,4 @@ class ThingsBoardDashboardService(
             Id(entityType = "DEVICE", id = UUID.fromString(rs.getString("entity_id")))
         }
     }
-
 }

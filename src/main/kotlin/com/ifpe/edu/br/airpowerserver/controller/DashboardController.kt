@@ -11,13 +11,13 @@ import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
 @RestController
-@RequestMapping("/api/v1/user/{userId}/dashboards")
+@RequestMapping("/api/v1/dashboards/")
 class DashboardController(
     private val dashboardService: ThingsBoardDashboardService
 ) {
     private val logger = LoggerFactory.getLogger(DashboardController::class.java)
 
-    @GetMapping
+    @GetMapping("{userId}/dashboards")
     fun getDashboardsForUser(@PathVariable userId: String): ResponseEntity<List<DashboardInfo>> {
         logger.info("Request received for dashboards of user: {}", userId)
         val dashboards = dashboardService.getDashboardsForUser(UUID.fromString(userId))
@@ -26,11 +26,10 @@ class DashboardController(
 
     @GetMapping("/{dashboardId}/device-ids")
     fun getDeviceIdsFromDashboard(
-        @PathVariable userId: String,
         @PathVariable dashboardId: String
     ): ResponseEntity<List<String>> {
-        logger.info("Request received for device IDs from dashboard {} for user: {}", dashboardId, userId)
-        val idObjects = dashboardService.getDeviceIdsFromDashboard(UUID.fromString(userId), dashboardId)
+        logger.info("Request received for device IDs from dashboard {}", dashboardId)
+        val idObjects = dashboardService.getDeviceIdsFromDashboard(dashboardId)
         val uuidStrings = idObjects.map { it.id.toString() }
         return ResponseEntity.ok(uuidStrings)
     }

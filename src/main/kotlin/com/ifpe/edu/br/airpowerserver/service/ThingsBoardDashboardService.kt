@@ -3,7 +3,6 @@ package com.ifpe.edu.br.airpowerserver.service
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.ifpe.edu.br.airpowerserver.dto.Id
-import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardConfig
 import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardConfiguration
 import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardInfo
 import org.slf4j.LoggerFactory
@@ -62,7 +61,7 @@ class ThingsBoardDashboardService(
     /**
      * Busca os IDs de dispositivos únicos de um dashboard específico.
      */
-    fun getDeviceIdsFromDashboard(customerId: UUID, dashboardId: String): List<Id> {
+    fun getDeviceIdsFromDashboard(dashboardId: String): List<Id> {
         val sqlConfig = "SELECT configuration::text FROM dashboard WHERE id = :dashboardId"
         val params = MapSqlParameterSource().addValue("dashboardId", UUID.fromString(dashboardId))
 
@@ -77,11 +76,8 @@ class ThingsBoardDashboardService(
                 val filter = alias.filter ?: return@forEach
 
                 when (filter.type) {
-                    // ---------------------------------------------------------
                     // OPÇÃO 1: Lista Manual (Entity List)
-                    // Útil para grupos pequenos e fixos (ex: A e B)
                     // Configurado na GUI como Filter Type: "Entity List"
-                    // ---------------------------------------------------------
                     "entityList" -> {
                         filter.entityList?.forEach { idStr ->
                             try {
@@ -89,19 +85,14 @@ class ThingsBoardDashboardService(
                             } catch (e: Exception) { logger.warn("UUID inválido na lista: $idStr") }
                         }
                     }
-
-                    // ---------------------------------------------------------
-                    // OPÇÃO 2: Relations Query (A solução robusta)
+                    // OPÇÃO 2: Relations Query
                     // Busca devices conectados a um Asset específico.
-                    // ---------------------------------------------------------
                     "relationsQuery" -> {
                         val rootId = filter.rootEntity?.id
                         val direction = filter.direction // FROM ou TO
                         // Se o usuário não definir relationType na GUI, o TB às vezes omite ou usa "Contains"
                         val relationType = filter.relationType
-
                         if (rootId != null && direction != null) {
-                            // Busca dinâmica na tabela de relações
                             val relations = findRelatedDevices(
                                 UUID.fromString(rootId),
                                 direction,
@@ -110,13 +101,9 @@ class ThingsBoardDashboardService(
                             deviceIds.addAll(relations)
                         }
                     }
-
-                    // ... outros casos (singleEntity, etc) ...
                 }
             }
-
             return deviceIds.toList()
-
         } catch (e: Exception) {
             logger.error("Erro ao resolver dashboard {}: {}", dashboardId, e.message)
             return emptyList()
@@ -124,38 +111,54 @@ class ThingsBoardDashboardService(
     }
 
     /**
-     * Busca na tabela 'relation' do ThingsBoard.
-     * Estrutura da tabela: from_id, from_type, to_id, to_type, relation_type_group, relation_type
+     * Busca RECURSIVAMENTE na tabela 'relation' do ThingsBoard.
+     * Encontra todos os dispositivos descendentes, não importa a profundidade (Asset -> Asset -> Device).
      */
     private fun findRelatedDevices(rootEntityId: UUID, direction: String, relationType: String?): List<Id> {
-        // Se direction é FROM, o Asset é o 'from_id' e buscamos os 'to_id' (os devices)
-        // Se direction é TO, o Asset é o 'to_id' (menos comum para agrupamento)
-
         val isFrom = direction.equals("FROM", ignoreCase = true)
 
-        val selectColumn = if (isFrom) "to_id" else "from_id"
-        val whereColumn = if (isFrom) "from_id" else "to_id"
-        // Garantimos que só retornamos dispositivos
-        val targetTypeColumn = if (isFrom) "to_type" else "from_type"
+        // Se a direção é FROM (Root -> Filhos), a recursão segue from_id -> to_id.
+        val parentColumn = if (isFrom) "from_id" else "to_id"
+        val childColumn = if (isFrom) "to_id" else "from_id"
+        val childTypeColumn = if (isFrom) "to_type" else "from_type"
 
-        var sql = """
-            SELECT $selectColumn as device_id 
-            FROM relation 
-            WHERE $whereColumn = :rootId 
-              AND $targetTypeColumn = 'DEVICE'
-              AND relation_type_group = 'COMMON'
+        // SQL Recursivo para PostgreSQL
+        val sql = """
+            WITH RECURSIVE entity_tree AS (
+                -- Caso Base: Encontra os filhos diretos da Entidade Raiz (ex: Campus -> Bloco A)
+                SELECT 
+                    $childColumn as entity_id, 
+                    $childTypeColumn as entity_type
+                FROM relation 
+                WHERE $parentColumn = :rootId
+                  AND relation_type_group = 'COMMON'
+                  ${if (!relationType.isNullOrBlank()) "AND relation_type = :relType" else ""}
+                
+                UNION ALL
+                
+                -- Passo Recursivo: Encontra os filhos dos filhos (ex: Bloco A -> Device)
+                SELECT 
+                    r.$childColumn, 
+                    r.$childTypeColumn
+                FROM relation r
+                INNER JOIN entity_tree et ON r.$parentColumn = et.entity_id
+                WHERE r.relation_type_group = 'COMMON'
+                  ${if (!relationType.isNullOrBlank()) "AND r.relation_type = :relType" else ""}
+            )
+            -- Filtro Final: Retorna apenas o que for DEVICE na árvore inteira
+            SELECT entity_id 
+            FROM entity_tree 
+            WHERE entity_type = 'DEVICE'
         """
 
         val params = MapSqlParameterSource().addValue("rootId", rootEntityId)
 
-        // Adiciona filtro por tipo de relação se especificado (ex: 'Contains')
         if (!relationType.isNullOrBlank()) {
-            sql += " AND relation_type = :relType"
             params.addValue("relType", relationType)
         }
 
         return namedJdbcTemplate.query(sql, params) { rs, _ ->
-            Id(entityType = "DEVICE", id = UUID.fromString(rs.getString("device_id")))
+            Id(entityType = "DEVICE", id = UUID.fromString(rs.getString("entity_id")))
         }
     }
 

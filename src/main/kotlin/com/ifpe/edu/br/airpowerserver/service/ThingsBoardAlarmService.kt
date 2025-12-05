@@ -21,9 +21,9 @@ class ThingsBoardAlarmService(
 
     private val logger = LoggerFactory.getLogger(ThingsBoardAlarmService::class.java)
 
-    fun getAllAlarmInfoForUserId(userId: UUID): List<APAlarmInfo>{
+    fun getAllAlarmInfoForUserId(userId: UUID): List<APAlarmInfo> {
         try {
-            val url = "$thingsBoardApiUrl/api/alarms${getAlarmQuery(userId)}"
+            val url = "$thingsBoardApiUrl/api/alarms${getAlarmQuery(userId = userId, status = "ACTIVE_UNACK")}"
             logger.debug("Requesting alarms from URL: $url")
             val requestEntity = HttpEntity<String>(tbServiceUtil.getAuthHeaders(userId))
             val response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, TBAlarmResponse::class.java)
@@ -55,6 +55,7 @@ class ThingsBoardAlarmService(
     ): String {
         val queryParams = mutableListOf<String>()
 
+        userId.let { queryParams.add("userId=$it") }
         searchStatus?.let { queryParams.add("searchStatus=$it") }
         status?.let { queryParams.add("status=$it") }
         assigneeId?.let { queryParams.add("assigneeId=$it") }
@@ -70,5 +71,32 @@ class ThingsBoardAlarmService(
         queryParams.add("pageSize=$pageSize")
 
         return if (queryParams.isNotEmpty()) "?" + queryParams.joinToString("&") else ""
+    }
+
+    /**
+     * Retrieves alarms that are not acknowledged.
+     *
+     * This function filters alarms on the server-side by their 'acknowledged' status.
+     * It returns alarms where 'acknowledged' is false, regardless of their 'cleared' status.
+     *
+     * @param userId The UUID of the user.
+     * @return A list of [APAlarmInfo] for unacknowledged alarms.
+     */
+    fun getUnacknowledgedAlarms(userId: UUID): List<APAlarmInfo> {
+        try {
+            val url = "$thingsBoardApiUrl/api/alarms${getAlarmQuery(userId, searchStatus = "UNACK")}"
+            logger.debug("Requesting unacknowledged alarms from URL: $url")
+            val requestEntity = HttpEntity<String>(tbServiceUtil.getAuthHeaders(userId))
+            val response = restTemplate.exchange(url, HttpMethod.GET, requestEntity, TBAlarmResponse::class.java)
+            return if (response.statusCode.is2xxSuccessful && response.body != null) {
+                response.body!!.toAirPowerAlarmInfo()
+            } else {
+                logger.error("Failed to fetch unacknowledged alarms. Status: {}", response.statusCode)
+                throw IllegalStateException("Failed to fetch unacknowledged alarms from ThingsBoard: ${response.statusCode}")
+            }
+        } catch (e: Exception) {
+            logger.error("Exception when calling ThingsBoard API to fetch unacknowledged alarms", e)
+            throw IllegalStateException("Failed to communicate with ThingsBoard service: ${e.message}")
+        }
     }
 }

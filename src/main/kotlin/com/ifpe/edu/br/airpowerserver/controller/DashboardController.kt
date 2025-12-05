@@ -1,6 +1,8 @@
 package com.ifpe.edu.br.airpowerserver.controller
 
+import com.ifpe.edu.br.airpowerserver.config.ApiException
 import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardInfo
+import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 import com.ifpe.edu.br.airpowerserver.service.ThingsBoardDashboardService
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
@@ -34,6 +36,10 @@ class DashboardController(
     @GetMapping("{userId}/dashboards")
     fun getDashboardsForUser(@PathVariable userId: String): ResponseEntity<List<DashboardInfo>> {
         logger.info("Request received for dashboards of user: {}", userId)
+        runCatching { UUID.fromString(userId) }.getOrElse {
+            logger.error("Invalid userId format: {}", userId)
+            throw ApiException(ErrorCode.BAD_REQUEST,"Invalid userId format" )
+        }
         val dashboards = dashboardService.getDashboardsForUser(UUID.fromString(userId))
         return ResponseEntity.ok(dashboards)
     }

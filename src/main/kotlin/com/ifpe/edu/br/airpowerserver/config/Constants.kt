@@ -18,6 +18,7 @@ class Constants {
 
         // --- Erros Genéricos (9xxx) ---
         const val UNKNOWN_INTERNAL_ERROR = 9
+        const val BAD_REQUEST = 91
     }
 
     object Scope {

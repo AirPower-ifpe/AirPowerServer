@@ -13,5 +13,6 @@ enum class ErrorCode(
     TB_JWT_EXPIRED(401, Constants.ResponseErrorCodes.TB_JWT_EXPIRED,"A sessão com o serviço externo expirou. Tente novamente."),
     TB_REFRESH_TOKEN_EXPIRED(401, Constants.ResponseErrorCodes.TB_REFRESH_TOKEN_EXPIRED,"O refresh token expirou. Tente novamente."),
     TB_GENERIC_ERROR(502, Constants.ResponseErrorCodes.TB_GENERIC_ERROR,"Ocorreu um erro inesperado no serviço externo."),
-    UNKNOWN_INTERNAL_ERROR(500, Constants.ResponseErrorCodes.UNKNOWN_INTERNAL_ERROR,"Ocorreu um erro interno inesperado no servidor.");
+    UNKNOWN_INTERNAL_ERROR(500, Constants.ResponseErrorCodes.UNKNOWN_INTERNAL_ERROR,"Ocorreu um erro interno inesperado no servidor."),
+    BAD_REQUEST(400, Constants.ResponseErrorCodes.BAD_REQUEST,"Ocorreu um erro na requisição");
 }

@@ -2,9 +2,11 @@ package com.ifpe.edu.br.airpowerserver.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.ifpe.edu.br.airpowerserver.config.ApiException
 import com.ifpe.edu.br.airpowerserver.dto.Id
 import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardConfiguration
 import com.ifpe.edu.br.airpowerserver.dto.dashboards.DashboardInfo
+import com.ifpe.edu.br.airpowerserver.dto.error.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.dao.EmptyResultDataAccessException
 import org.springframework.jdbc.core.RowMapper
@@ -67,16 +69,16 @@ class ThingsBoardDashboardService(
         val params = MapSqlParameterSource().addValue("userId", userId)
         logger.debug("Buscando dashboards no DB para o usuário: {}", userId)
 
-        return try {
+        return runCatching {
             val dashboards = namedJdbcTemplate.query(sql, params, dashboardInfoRowMapper)
             dashboards.forEach { dashboard ->
                 dashboard.devicesIds = getDeviceIdsFromDashboard(dashboard.id.id.toString())
                     .map { it.id.toString() }
             }
             dashboards
-        } catch (e: Exception) {
-            logger.error("Erro ao buscar dashboards diretamente do DB para o usuário {}: {}", userId, e.message)
-            emptyList()
+        }.getOrElse {
+            logger.error("SQL issue: {}", userId)
+            throw ApiException(ErrorCode.BAD_REQUEST, "SQL issue")
         }
     }
 
@@ -94,7 +96,7 @@ class ThingsBoardDashboardService(
         val sqlConfig = "SELECT configuration::text FROM dashboard WHERE id = :dashboardId"
         val params = MapSqlParameterSource().addValue("dashboardId", UUID.fromString(dashboardId))
 
-        try {
+        return runCatching {
             val configJson = namedJdbcTemplate.queryForObject(sqlConfig, params, String::class.java)
                 ?: throw EmptyResultDataAccessException(1)
 
@@ -107,11 +109,10 @@ class ThingsBoardDashboardService(
                 when (filter.type) {
                     "entityList" -> {
                         filter.entityList?.forEach { idStr ->
-                            try {
-                                deviceIds.add(Id(entityType = "DEVICE", id = UUID.fromString(idStr)))
-                            } catch (e: Exception) { logger.warn("UUID inválido na lista: $idStr") }
+                            deviceIds.add(Id(entityType = "DEVICE", id = UUID.fromString(idStr)))
                         }
                     }
+
                     "relationsQuery" -> {
                         val rootId = filter.rootEntity?.id
                         val direction = filter.direction
@@ -127,11 +128,9 @@ class ThingsBoardDashboardService(
                     }
                 }
             }
+            logger.error("getDeviceIdsFromDashboard finished")
             return deviceIds.toList()
-        } catch (e: Exception) {
-            logger.error("Erro ao resolver dashboard {}: {}", dashboardId, e.message)
-            return emptyList()
-        }
+        }.getOrElse { throw ApiException(ErrorCode.BAD_REQUEST, "SQL issue") }
     }
 
     /**

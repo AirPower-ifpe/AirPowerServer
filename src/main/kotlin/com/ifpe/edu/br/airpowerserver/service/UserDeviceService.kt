@@ -33,7 +33,7 @@ class UserDeviceService(private val jdbcTemplate: JdbcTemplate) {
      */
     fun getDeviceSummariesForUser(
         userIdStr: String,
-        activityTimeoutSeconds: Long = 60L
+        activityTimeoutSeconds: Long = 1200L
     ): List<DeviceSummaryDTO> {
         val userUuid: UUID = UUID.fromString(userIdStr)
         val userInfoSql = "SELECT tenant_id, customer_id FROM tb_user WHERE id = ?"

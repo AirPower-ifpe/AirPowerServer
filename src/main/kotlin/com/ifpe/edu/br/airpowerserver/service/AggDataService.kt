@@ -37,19 +37,6 @@ class AggDataService(
     private val logger = LoggerFactory.getLogger(AggDataService::class.java)
     private val ptBrLocale = Locale("pt", "BR")
 
-    /**
-     * Orquestra a busca e agregação de dados de telemetria e status.
-     *
-     * Este é o método principal do serviço. Ele:
-     * 1. Busca os dados agregados esparsos do banco de dados.
-     * 2. Gera uma série temporal completa para o período solicitado.
-     * 3. Preenche os intervalos sem dados com o valor zero.
-     * 4. Busca o valor total agregado e o status dos dispositivos.
-     * 5. Monta e retorna o objeto de resposta completo.
-     *
-     * @param request O objeto [AggregationRequest] com os detalhes da solicitação.
-     * @return Um [AggDataWrapperResponse] populado com todos os dados consolidados.
-     */
     fun getAggDataWrapper(
         request: AggregationRequest
     ): AggDataWrapperResponse {
@@ -62,6 +49,8 @@ class AggDataService(
 
         val totalValue = getTotalAggregatedValue(request, tsWrapper, deviceUuids)
         val statusSummaries = getDevicesStatusSummary(deviceUuids)
+
+        logger.info("getAggDataWrapper(): Concluido. Entradas de grafico: ${completeChartEntries.size}, Total calculado: $totalValue")
 
         return AggDataWrapperResponse(
             label = "Consumo ${parseWrapperLabel(request.timeIntervalWrapper.timeInterval)}",
@@ -78,10 +67,6 @@ class AggDataService(
         )
     }
 
-    /**
-     * Gera uma lista completa de todos os labels de tempo (ex: meses, dias)
-     * para um determinado intervalo.
-     */
     private fun generateCompleteTimeLabels(tsWrapper: AggQueryTsWrapper): List<String> {
         val labels = mutableListOf<String>()
         var currentTs = ZonedDateTime.ofInstant(Instant.ofEpochMilli(tsWrapper.startTs), ZoneId.systemDefault())
@@ -99,14 +84,6 @@ class AggDataService(
         return labels
     }
 
-    /**
-     * Preenche uma lista esparsa de entradas de gráfico para garantir que todos os intervalos de tempo
-     * dentro do período estejam presentes, adicionando valor 0 para os ausentes.
-     *
-     * @param sparseEntries A lista de dados retornada diretamente do banco de dados.
-     * @param tsWrapper O wrapper que contém o intervalo de tempo completo e a formatação.
-     * @return Uma lista de [ChartEntry] completa e ordenada.
-     */
     private fun padChartEntries(sparseEntries: List<ChartEntry>, tsWrapper: AggQueryTsWrapper): List<ChartEntry> {
         val dataMap = sparseEntries.associateBy { it.label }
         val allPossibleLabels = generateCompleteTimeLabels(tsWrapper)
@@ -118,10 +95,6 @@ class AggDataService(
         }
     }
 
-    /**
-     * Busca os dados agregados do banco de dados. Retorna uma lista esparsa,
-     * contendo apenas os intervalos que possuem dados.
-     */
     private fun getSparseChartEntries(
         request: AggregationRequest,
         tsWrapper: AggQueryTsWrapper,
@@ -129,7 +102,7 @@ class AggDataService(
     ): List<ChartEntry> {
         val params = MapSqlParameterSource()
             .addValue("deviceIds", deviceUuids)
-            .addValue("aggKey", request.aggKey.name.lowercase())
+            .addValue("aggKey", request.aggKey.name.lowercase().trim())
             .addValue("startTs", tsWrapper.startTs)
             .addValue("endTs", tsWrapper.endTs)
 
@@ -137,7 +110,7 @@ class AggDataService(
         val chartSql = """
             SELECT
                 DATE_TRUNC(:timeGroup, to_timestamp(t.ts / 1000)) AS time_bucket,
-                ${safeAggStrategy}(t.long_v) AS aggregated_value
+                ROUND(${safeAggStrategy}(COALESCE(t.dbl_v, t.long_v::double precision)))::bigint AS aggregated_value
             FROM ts_kv AS t
             JOIN key_dictionary AS d ON t.key = d.key_id
             WHERE
@@ -149,21 +122,17 @@ class AggDataService(
         """.trimIndent()
 
         val finalChartSql = chartSql.replace(":timeGroup", "'${tsWrapper.timeGroup}'")
-        return namedJdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
+        val entries = namedJdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
             ChartEntry(
                 label = tsWrapper.timeFormat(rs.getTimestamp("time_bucket").time),
                 value = rs.getLong("aggregated_value")
             )
         })
+
+        logger.info("getSparseChartEntries(): Encontradas ${entries.size} faixas temporais com dados para a chave '${request.aggKey.name.lowercase()}'")
+        return entries
     }
 
-    /**
-     * Busca e calcula o resumo de status (Ativos/Inativos) para uma lista de dispositivos.
-     * A busca é feita consultando o atributo de servidor 'active' na tabela 'attribute_kv'.
-     *
-     * @param deviceIds Lista de UUIDs dos dispositivos a serem verificados.
-     * @return Uma lista de [DevicesStatusSummary].
-     */
     private fun getDevicesStatusSummary(deviceIds: List<UUID>): List<DevicesStatusSummary> {
         if (deviceIds.isEmpty()) return emptyList()
         val sql = """
@@ -200,19 +169,26 @@ class AggDataService(
     ): Long {
         val params = MapSqlParameterSource()
             .addValue("deviceIds", deviceUuids)
-            .addValue("aggKey", request.aggKey.name.lowercase())
+            .addValue("aggKey", request.aggKey.name.lowercase().trim())
             .addValue("startTs", tsWrapper.startTs)
             .addValue("endTs", tsWrapper.endTs)
 
         val safeAggStrategy = request.aggStrategy.name
         val totalAggSql = """
-            SELECT $safeAggStrategy(t.long_v)
+            SELECT ROUND($safeAggStrategy(COALESCE(t.dbl_v, t.long_v::double precision)))::bigint
             FROM ts_kv AS t
             JOIN key_dictionary AS d ON t.key = d.key_id
             WHERE t.entity_id IN (:deviceIds) AND d.key = :aggKey AND t.ts BETWEEN :startTs AND :endTs
         """.trimIndent()
 
-        return namedJdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
+        return try {
+            val total = namedJdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
+            logger.info("getTotalAggregatedValue(): Total no periodo = $total")
+            total
+        } catch (e: Exception) {
+            logger.warn("getTotalAggregatedValue(): Nenhum dado agregado encontrado ou falha na consulta (${e.message}). Retornando 0.")
+            0L
+        }
     }
 
     private fun parseAggKey(aggKey: TelemetryKey): String {
@@ -313,19 +289,16 @@ class AggDataService(
         rs.getString("label")
     }
 
-    /**
-     * This function is not in a 'state of the art', it's just a first implementation to solve a problem,
-     * need to be enhanced as soon as possible to improve performance on a huge bunch of devices
-     */
     fun aggregateTelemetry(
         request: TelemetryAggregationRequest
     ): List<DeviceAggregatedTelemetry> {
-
         val results = mutableListOf<DeviceAggregatedTelemetry>()
         val endTime = Instant.now()
         val startTime = endTime.minus(request.timeWindowHours.toLong(), ChronoUnit.HOURS)
         val startTs = startTime.toEpochMilli()
         val endTs = endTime.toEpochMilli()
+
+        logger.info("aggregateTelemetry(): Processando janela de ${request.timeWindowHours}h (entre $startTs e $endTs) para ${request.deviceIds.size} dispositivo(s)")
 
         for (deviceIdString in request.deviceIds) {
             val deviceUuid: UUID
@@ -333,7 +306,7 @@ class AggDataService(
             try {
                 deviceUuid = UUID.fromString(deviceIdString)
             } catch (e: Exception) {
-                logger.warn("Invalid ID for device: {}", "ID: $deviceIdString Message:${e.message}")
+                logger.warn("aggregateTelemetry(): ID de dispositivo invalido: $deviceIdString")
                 continue
             }
             var deviceLabel: String?
@@ -343,7 +316,7 @@ class AggDataService(
                     jdbcTemplate.query(query, deviceLabelRowMapper, deviceUuid)
                         .firstOrNull() ?: "Device not found"
             } catch (e: Exception) {
-                logger.error("Error while searching for device: {}: {}", deviceUuid, e.message)
+                logger.error("aggregateTelemetry(): Erro ao buscar label do device $deviceUuid: ${e.message}")
                 deviceLabel = "DEVICE NOT_FOUND: $deviceUuid"
             }
 
@@ -360,7 +333,7 @@ class AggDataService(
             for (telemetryKey in request.telemetryKeys) {
                 val keyId = getTelemetryKeyIdFromString(telemetryKey)
                 if (keyId == null) {
-                    logger.warn("Telemetry key ID not found '{}'", telemetryKey)
+                    logger.warn("aggregateTelemetry(): ID da chave nao encontrado para '$telemetryKey'")
                     continue
                 }
                 try {
@@ -382,13 +355,16 @@ class AggDataService(
                             "MAX" -> values.maxOrNull()
                             "COUNT" -> values.size.toDouble()
                             else -> {
-                                logger.warn("Aggregation function not found: {}", request.aggregationFunction)
+                                logger.warn("aggregateTelemetry(): Funcao de agregacao desconhecida: ${request.aggregationFunction}")
                                 null
                             }
                         }
                     } else {
                         null
                     }
+
+                    logger.info("aggregateTelemetry(): Device $deviceUuid, Chave '$telemetryKey', Pontos lidos: $dataPointsCount, Valor agregado: $aggregatedValue")
+
                     aggregatedTelemetries.add(
                         Telemetry(
                             key = telemetryKey,
@@ -397,11 +373,7 @@ class AggDataService(
                         )
                     )
                 } catch (e: Exception) {
-                    logger.error(
-                        "Error while aggregate telemetry for device:{}: {}",
-                        deviceUuid,
-                        e.message
-                    )
+                    logger.error("aggregateTelemetry(): Erro ao agregar telemetria para device $deviceUuid: ${e.message}")
                 }
             }
 
@@ -416,22 +388,19 @@ class AggDataService(
                 )
             )
         }
-        logger.warn("ATTENTION, THIS FUNCTION NEEDS TO BE ENHANCED DUE TO REACH A BETTER PERFORMANCE AS SOON AS POSSIBLE")
         return results
     }
 
     private fun getTelemetryKeyIdFromString(telemetryKeyString: String): Int? {
+        val normalizedKey = telemetryKeyString.trim().lowercase()
         val query = "SELECT key_id FROM key_dictionary WHERE key = ?"
         return try {
-            jdbcTemplate.queryForObject(query, Int::class.java, telemetryKeyString)
+            jdbcTemplate.queryForObject(query, Int::class.java, normalizedKey)
         } catch (e: EmptyResultDataAccessException) {
-            logger.warn(
-                "Telemetry key not found for string: '{}' on dictionary: (ts_kv_dictionary).",
-                "keyString: $telemetryKeyString  message:${e.message}"
-            )
+            logger.warn("getTelemetryKeyIdFromString(): Chave nao encontrada no dicionario: '$normalizedKey'")
             null
         } catch (e: Exception) {
-            logger.error("Error while find key_id for key string '{}': {}", telemetryKeyString, e.message)
+            logger.error("getTelemetryKeyIdFromString(): Erro ao consultar chave '$normalizedKey': ${e.message}")
             null
         }
     }

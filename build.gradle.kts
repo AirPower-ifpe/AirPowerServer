@@ -4,6 +4,8 @@ plugins {
     id("org.springframework.boot") version "3.5.0"
     id("io.spring.dependency-management") version "1.1.7"
     kotlin("plugin.jpa") version "1.9.25"
+    kotlin("plugin.lombok") version "1.9.25"
+    kotlin("kapt") version "1.9.25"
 }
 
 group = "com.ifpe.edu.br"
@@ -42,6 +44,7 @@ dependencies {
     developmentOnly("org.springframework.boot:spring-boot-devtools")
     implementation("org.postgresql:postgresql")
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
+    kapt("org.springframework.boot:spring-boot-configuration-processor")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
@@ -68,6 +71,7 @@ dependencies {
     implementation("ch.qos.logback:logback-classic:$logbackVersion")
 
     implementation("org.apache.httpcomponents.client5:httpclient5")
+    testImplementation(kotlin("test"))
 }
 
 kotlin {
@@ -84,4 +88,7 @@ allOpen {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+kapt {
+    keepJavacAnnotationProcessors = true
 }

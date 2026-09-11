@@ -106,31 +106,52 @@ class AggDataService(
             .addValue("startTs", tsWrapper.startTs)
             .addValue("endTs", tsWrapper.endTs)
 
-        val safeAggStrategy = request.aggStrategy.name
-        val chartSql = """
+        val isPower = request.aggKey == TelemetryKey.POWER
+
+        val chartSql = if (isPower && deviceUuids.size > 1) {
+            """
+            WITH per_device_bucket AS (
+                SELECT
+                    DATE_TRUNC(:timeGroup, to_timestamp(t.ts / 1000)) AS time_bucket,
+                    t.entity_id,
+                    AVG(COALESCE(t.dbl_v, t.long_v::double precision)) AS avg_power
+                FROM ts_kv t
+                JOIN key_dictionary d ON t.key = d.key_id
+                WHERE t.entity_id IN (:deviceIds)
+                  AND d.key = :aggKey
+                  AND t.ts BETWEEN :startTs AND :endTs
+                GROUP BY time_bucket, t.entity_id
+            )
+            SELECT
+                time_bucket,
+                ROUND(SUM(avg_power))::bigint AS aggregated_value
+            FROM per_device_bucket
+            GROUP BY time_bucket
+            ORDER BY time_bucket
+        """.trimIndent()
+        } else {
+            val safeAggStrategy = request.aggStrategy.name
+            """
             SELECT
                 DATE_TRUNC(:timeGroup, to_timestamp(t.ts / 1000)) AS time_bucket,
                 ROUND(${safeAggStrategy}(COALESCE(t.dbl_v, t.long_v::double precision)))::bigint AS aggregated_value
             FROM ts_kv AS t
             JOIN key_dictionary AS d ON t.key = d.key_id
-            WHERE
-                t.entity_id IN (:deviceIds) AND
-                d.key = :aggKey AND
-                t.ts BETWEEN :startTs AND :endTs
+            WHERE t.entity_id IN (:deviceIds)
+              AND d.key = :aggKey
+              AND t.ts BETWEEN :startTs AND :endTs
             GROUP BY time_bucket
             ORDER BY time_bucket
         """.trimIndent()
+        }
 
         val finalChartSql = chartSql.replace(":timeGroup", "'${tsWrapper.timeGroup}'")
-        val entries = namedJdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
+        return namedJdbcTemplate.query(finalChartSql, params, RowMapper { rs: ResultSet, _: Int ->
             ChartEntry(
                 label = tsWrapper.timeFormat(rs.getTimestamp("time_bucket").time),
                 value = rs.getLong("aggregated_value")
             )
         })
-
-        logger.info("getSparseChartEntries(): Encontradas ${entries.size} faixas temporais com dados para a chave '${request.aggKey.name.lowercase()}'")
-        return entries
     }
 
     private fun getDevicesStatusSummary(deviceIds: List<UUID>): List<DevicesStatusSummary> {
@@ -173,27 +194,43 @@ class AggDataService(
             .addValue("startTs", tsWrapper.startTs)
             .addValue("endTs", tsWrapper.endTs)
 
-        val safeAggStrategy = request.aggStrategy.name
-        val totalAggSql = """
+        val isPower = request.aggKey == TelemetryKey.POWER
+        val totalAggSql = if (isPower) {
+            val totalHours = ((tsWrapper.endTs - tsWrapper.startTs) / (1000.0 * 3600.0)).coerceAtLeast(1.0)
+            """
+            WITH device_avg AS (
+                SELECT t.entity_id, AVG(COALESCE(t.dbl_v, t.long_v::double precision)) AS avg_power_w
+                FROM ts_kv t
+                JOIN key_dictionary d ON t.key = d.key_id
+                WHERE t.entity_id IN (:deviceIds) 
+                  AND d.key = :aggKey 
+                  AND t.ts BETWEEN :startTs AND :endTs
+                GROUP BY t.entity_id
+            )
+            SELECT ROUND(COALESCE(SUM(avg_power_w), 0) * $totalHours / 1000.0)::bigint
+            FROM device_avg
+        """.trimIndent()
+        } else {
+            val safeAggStrategy = request.aggStrategy.name
+            """
             SELECT ROUND($safeAggStrategy(COALESCE(t.dbl_v, t.long_v::double precision)))::bigint
             FROM ts_kv AS t
             JOIN key_dictionary AS d ON t.key = d.key_id
             WHERE t.entity_id IN (:deviceIds) AND d.key = :aggKey AND t.ts BETWEEN :startTs AND :endTs
         """.trimIndent()
+        }
 
         return try {
-            val total = namedJdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
-            logger.info("getTotalAggregatedValue(): Total no periodo = $total")
-            total
+            namedJdbcTemplate.queryForObject(totalAggSql, params, Long::class.java) ?: 0L
         } catch (e: Exception) {
-            logger.warn("getTotalAggregatedValue(): Nenhum dado agregado encontrado ou falha na consulta (${e.message}). Retornando 0.")
+            logger.warn("getTotalAggregatedValue(): Falha na consulta (${e.message}). Retornando 0.")
             0L
         }
     }
 
     private fun parseAggKey(aggKey: TelemetryKey): String {
         return when (aggKey) {
-            TelemetryKey.POWER -> "KW/h"
+            TelemetryKey.POWER -> "kWh"
             TelemetryKey.VOLTAGE -> "Volts"
             TelemetryKey.CURRENT -> "Amperes"
         }

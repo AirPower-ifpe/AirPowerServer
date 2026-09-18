@@ -46,22 +46,21 @@ class UserDeviceService(private val jdbcTemplate: JdbcTemplate) {
             logger.error("Erro ao buscar informações do usuário com ID: {}", userUuid, e)
             throw IllegalStateException("Erro ao buscar informações do usuário com ID: $userUuid")
         }
+
         val activityTimeoutMs = activityTimeoutSeconds * 1000L
+
         val deviceSummaryRowMapper = RowMapper<DeviceSummaryDTO> { rs: ResultSet, _: Int ->
+            val isActiveFromTb = rs.getObject("is_active") as? Boolean
             val lastActivityTimestampMs = rs.getLong("last_activity_ts")
-            val wasNull = rs.wasNull()
-            var isActive = false
-            if (!wasNull && lastActivityTimestampMs > 0) {
-                val currentTimeMs = Instant.now().toEpochMilli()
-                if ((currentTimeMs - lastActivityTimestampMs) <= activityTimeoutMs) {
-                    isActive = true
+            val wasNullLat = rs.wasNull()
+
+            val isActive = isActiveFromTb
+                ?: if (!wasNullLat && lastActivityTimestampMs > 0) {
+                    val currentTimeMs = Instant.now().toEpochMilli()
+                    (currentTimeMs - lastActivityTimestampMs) <= activityTimeoutMs
+                } else {
+                    false
                 }
-            } else {
-                logger.debug(
-                    "Dispositivo {} não possui lastActivityTime ou é 0, considerando inativo.",
-                    rs.getString("device_id")
-                )
-            }
 
             DeviceSummaryDTO(
                 id = UUID.fromString(rs.getString("device_id")),
@@ -78,13 +77,16 @@ class UserDeviceService(private val jdbcTemplate: JdbcTemplate) {
                 d.name AS device_name, 
                 d.label AS device_label, 
                 d.type AS device_type,
+                attr_active.bool_v AS is_active,
                 attr_lat.long_v AS last_activity_ts 
             FROM 
                 device d
-            LEFT JOIN
-                attribute_kv attr_lat ON d.id = attr_lat.entity_id
-               AND attr_lat.attribute_type = '2' /*SERVER_SCOPE*/ 
-               AND attr_lat.attribute_key = '55' /*lastActivityTime*/  
+            LEFT JOIN key_dictionary kd_active ON kd_active.key = 'active'
+            LEFT JOIN attribute_kv attr_active ON d.id = attr_active.entity_id 
+                AND attr_active.attribute_key = kd_active.key_id
+            LEFT JOIN key_dictionary kd_lat ON kd_lat.key = 'lastActivityTime'
+            LEFT JOIN attribute_kv attr_lat ON d.id = attr_lat.entity_id 
+                AND attr_lat.attribute_key = kd_lat.key_id
             WHERE 
                 d.tenant_id = ?
         """.trimIndent()

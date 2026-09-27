@@ -116,7 +116,10 @@ class ThingsBoardDashboardService(
                     "relationsQuery" -> {
                         val rootId = filter.rootEntity?.id
                         val direction = filter.direction
-                        val relationType = filter.relationType
+                        // O TB armazena relationType dentro de filters[0].relationType
+                        // O campo raiz filter.relationType é legado / fallback
+                        val relationType = filter.filters?.firstOrNull()?.relationType
+                            ?: filter.relationType
                         if (rootId != null && direction != null) {
                             val relations = findRelatedDevices(
                                 UUID.fromString(rootId),
@@ -128,7 +131,7 @@ class ThingsBoardDashboardService(
                     }
                 }
             }
-            logger.error("getDeviceIdsFromDashboard finished")
+            logger.debug("getDeviceIdsFromDashboard finished: {} devices found", deviceIds.size)
             return deviceIds.toList()
         }.getOrElse { throw ApiException(ErrorCode.BAD_REQUEST, "SQL issue") }
     }

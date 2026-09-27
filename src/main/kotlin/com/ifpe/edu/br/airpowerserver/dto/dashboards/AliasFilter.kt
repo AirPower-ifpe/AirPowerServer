@@ -7,5 +7,6 @@ data class AliasFilter(
     // Novos campos para suportar a Query de Relação:
     val rootEntity: SingleEntity?,
     val direction: String?, // "FROM" ou "TO"
-    val relationType: String? // ex: "Contains"
+    val relationType: String?, // ex: "Contains" (legado / fallback)
+    val filters: List<RelationFilter>? = null // TB armazena relationType aqui: filters[0].relationType
 )

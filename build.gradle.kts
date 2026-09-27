@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.ifpe.edu.br"
-version = "1.0.0-alpha"
+version = "2.0.1"
 val jjwtVersion = "0.11.5"
 val ktorVersion = "2.0.0"
 val logbackVersion = "1.5.13"

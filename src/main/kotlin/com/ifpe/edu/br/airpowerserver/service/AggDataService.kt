@@ -100,11 +100,19 @@ class AggDataService(
         tsWrapper: AggQueryTsWrapper,
         deviceUuids: List<UUID>
     ): List<ChartEntry> {
+        val keyId = getTelemetryKeyIdFromString(request.aggKey.name)
         val params = MapSqlParameterSource()
             .addValue("deviceIds", deviceUuids)
-            .addValue("aggKey", request.aggKey.name.lowercase().trim())
             .addValue("startTs", tsWrapper.startTs)
             .addValue("endTs", tsWrapper.endTs)
+
+        val keyCondition = if (keyId != null) {
+            params.addValue("keyId", keyId)
+            "t.key = :keyId"
+        } else {
+            params.addValue("aggKey", request.aggKey.name.lowercase().trim())
+            "t.key = (SELECT key_id FROM key_dictionary WHERE key = :aggKey)"
+        }
 
         val isPower = request.aggKey == TelemetryKey.POWER
 
@@ -116,9 +124,8 @@ class AggDataService(
                     t.entity_id,
                     AVG(COALESCE(t.dbl_v, t.long_v::double precision)) AS avg_power
                 FROM ts_kv t
-                JOIN key_dictionary d ON t.key = d.key_id
                 WHERE t.entity_id IN (:deviceIds)
-                  AND d.key = :aggKey
+                  AND $keyCondition
                   AND t.ts BETWEEN :startTs AND :endTs
                 GROUP BY time_bucket, t.entity_id
             )
@@ -136,9 +143,8 @@ class AggDataService(
                 DATE_TRUNC(:timeGroup, to_timestamp(t.ts / 1000)) AS time_bucket,
                 ROUND(${safeAggStrategy}(COALESCE(t.dbl_v, t.long_v::double precision)))::bigint AS aggregated_value
             FROM ts_kv AS t
-            JOIN key_dictionary AS d ON t.key = d.key_id
             WHERE t.entity_id IN (:deviceIds)
-              AND d.key = :aggKey
+              AND $keyCondition
               AND t.ts BETWEEN :startTs AND :endTs
             GROUP BY time_bucket
             ORDER BY time_bucket
@@ -188,11 +194,19 @@ class AggDataService(
         tsWrapper: AggQueryTsWrapper,
         deviceUuids: List<UUID>
     ): Long {
+        val keyId = getTelemetryKeyIdFromString(request.aggKey.name)
         val params = MapSqlParameterSource()
             .addValue("deviceIds", deviceUuids)
-            .addValue("aggKey", request.aggKey.name.lowercase().trim())
             .addValue("startTs", tsWrapper.startTs)
             .addValue("endTs", tsWrapper.endTs)
+
+        val keyCondition = if (keyId != null) {
+            params.addValue("keyId", keyId)
+            "t.key = :keyId"
+        } else {
+            params.addValue("aggKey", request.aggKey.name.lowercase().trim())
+            "t.key = (SELECT key_id FROM key_dictionary WHERE key = :aggKey)"
+        }
 
         val isPower = request.aggKey == TelemetryKey.POWER
         val totalAggSql = if (isPower) {
@@ -201,9 +215,8 @@ class AggDataService(
             WITH device_avg AS (
                 SELECT t.entity_id, AVG(COALESCE(t.dbl_v, t.long_v::double precision)) AS avg_power_w
                 FROM ts_kv t
-                JOIN key_dictionary d ON t.key = d.key_id
                 WHERE t.entity_id IN (:deviceIds) 
-                  AND d.key = :aggKey 
+                  AND $keyCondition 
                   AND t.ts BETWEEN :startTs AND :endTs
                 GROUP BY t.entity_id
             )
@@ -215,8 +228,7 @@ class AggDataService(
             """
             SELECT ROUND($safeAggStrategy(COALESCE(t.dbl_v, t.long_v::double precision)))::bigint
             FROM ts_kv AS t
-            JOIN key_dictionary AS d ON t.key = d.key_id
-            WHERE t.entity_id IN (:deviceIds) AND d.key = :aggKey AND t.ts BETWEEN :startTs AND :endTs
+            WHERE t.entity_id IN (:deviceIds) AND $keyCondition AND t.ts BETWEEN :startTs AND :endTs
         """.trimIndent()
         }
 
